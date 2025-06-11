@@ -36,13 +36,6 @@ interface ExtendedAnswer extends Answer {
   } | null;
 }
 
-interface TrendData {
-  group: string;
-  positive: number;
-  negative: number;
-  count: number;
-}
-
 interface TooltipPayload {
   value?: number;
   name?: string;
