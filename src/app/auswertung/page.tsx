@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import { BarChart, Bar, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine, LineChart, Line } from "recharts";
 
@@ -111,7 +112,7 @@ const convertToExperienceGroup = (experienceValue: string | null): string | null
   return null;
 };
 
-export default function AuswertungPage() {
+function AuswertungContent() {
   const searchParams = useSearchParams();
   const responseId = searchParams.get("response_id");
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
@@ -902,5 +903,13 @@ export default function AuswertungPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function AuswertungPage() {
+  return (
+    <Suspense fallback={<div className="text-center p-8">Lade Auswertung...</div>}>
+      <AuswertungContent />
+    </Suspense>
   );
 } 
