@@ -1,0 +1,35 @@
+Optimieren: 
+- [x] Test starten mit Frage nach Rolle, dann Schulstufe, dann Berufserfahrung, dann Geschlecht, dann Alter
+  → Reihenfolge der demografischen Fragen im Code angepasst
+- [x] Frage hinzufügen: "Ich fühle mich kompetent beim Einsatz von KI im eigenen Unterricht."
+  → Diese Frage wird als letztes Item im Test angezeigt
+- [x] Progressbar ist oben an Fenster, sieht man kaum. besser platzieren
+  → Progressbar ist jetzt größer, sticky und mit Abstand zur Navigation
+- [x] nachdem man bei einer Frage eine Zahl gewählt hat, bleibt die Auswahl auch bei der nächsten Frage, bis man wegklickt. 
+  → Nach Klick wird der Button disabled, damit die Auswahl nicht "klebt" (Achtung: Siehe neuen Bug unten)
+- [ ] die Grafiken sind nicht optimal. Das liegt auch daran, dass das Ergebnis des Testes nicht ganz einfach einzuordnen ist. 
+- [x] Eingabemöglichkeiten durch Dropdown ersetzen:
+# Auswahl für Schulstufe
+Basisstufe
+Primarschule
+Sekundarstufe 1
+Sekundarstufe 2
+Hochschule
+Universität
+
+# Auswahl für Rolle
+Lehrperson
+Dozent:in
+Schulleiter:in
+Wissenschaftler:in 
+sonstiges
+
+# Überlegungen zur Testauswertung
+- Wenn man als Lehrperson diesen Test gemacht hat, dann möchte man sich vermutlich mit der gesamtpopulation vergleichen. Einordnung des eigenen Test ist daher sinnvoll. 
+- Spannend sind vermutlich fragen, wie man im Vergleich zu anderen Personen steht aus der gleichen Altersgruppe oder Erfahrungsgruppe. 
+- Auch eine Rangliste der verschiedenen Schulstufen könnte spannend sein. welche Stufe ist am optimistischen? Welche eher am deutlichsten kritisch? 
+
+## Negative und Positive Haltung gegenüber KI
+Der Test weist positive und negative kodierte Items auf. Dabei sind die positiven und negativen Einstellungen gegenüber der KI spannend. Es ist gut möglich, dass jemand ausgeprägte positive, wie auch negative Einstellungen gegenüber der KI hat. Vermutlich könnte eine Matrix gebildet werden. tiefe skepsis, tiefe Euphorie. hohe skepsis, tiefe Euphorie. tiefe Skepsis, hohe Euphorie. Hohe skepsis, hohe euphorie. 
+
+
