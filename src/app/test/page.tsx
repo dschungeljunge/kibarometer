@@ -54,7 +54,9 @@ const validateInput = {
   
   // Response ID validieren
   validateResponseId: (id: string | number): boolean => {
-    return typeof id === 'number' && id > 0;
+    // Akzeptiere sowohl Number als auch String, solange sie eine gültige positive Zahl repräsentieren
+    const numValue = typeof id === 'string' ? parseInt(id, 10) : id;
+    return !isNaN(numValue) && numValue > 0;
   }
 };
 
@@ -230,9 +232,13 @@ export default function TestPage() {
             
             const response_id = responseData.id;
             
+            // Debug-Log für Response ID
+            console.log('Response ID erhalten:', response_id, 'Typ:', typeof response_id);
+            
             // Validiere Response ID
             if (!validateInput.validateResponseId(response_id)) {
-                throw new Error("Ungültige Response ID erhalten");
+                console.error('Response ID Validation fehlgeschlagen:', response_id);
+                throw new Error(`Ungültige Response ID erhalten: ${response_id} (Typ: ${typeof response_id})`);
             }
 
             const itemAnswersToInsert = questions
