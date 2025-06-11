@@ -54,9 +54,14 @@ const validateInput = {
   
   // Response ID validieren
   validateResponseId: (id: string | number): boolean => {
-    // Akzeptiere sowohl Number als auch String, solange sie eine gültige positive Zahl repräsentieren
-    const numValue = typeof id === 'string' ? parseInt(id, 10) : id;
-    return !isNaN(numValue) && numValue > 0;
+    // Akzeptiere UUIDs (strings) und positive Zahlen
+    if (typeof id === 'string') {
+      // UUID-Format validieren (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(id);
+    }
+    // Für numerische IDs
+    return typeof id === 'number' && id > 0;
   }
 };
 
