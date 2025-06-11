@@ -33,8 +33,8 @@ export default function DatenschutzPage() {
           <div className="bg-gray-50 p-4 rounded">
             <h3 className="font-semibold mb-2">Demografische Angaben:</h3>
             <ul className="list-disc list-inside space-y-1 text-gray-700">
-              <li>Altersgruppe (kategorisch: z.B. "25-34")</li>
-              <li>Berufserfahrung (kategorisch: z.B. "6-10 Jahre")</li>
+              <li>Altersgruppe (kategorisch: z.B. &quot;25-34&quot;)</li>
+              <li>Berufserfahrung (kategorisch: z.B. &quot;6-10 Jahre&quot;)</li>
               <li>Geschlecht (optional)</li>
               <li>Schulstufe</li>
               <li>Berufliche Rolle</li>

@@ -36,6 +36,19 @@ interface ExtendedAnswer extends Answer {
   } | null;
 }
 
+interface TrendData {
+  group: string;
+  positive: number;
+  negative: number;
+  count: number;
+}
+
+interface TooltipPayload {
+  value?: number;
+  name?: string;
+  color?: string;
+}
+
 // Hilfsfunktion zur Profilberechnung
 const calculateProfile = (answers: Answer[]): Profile => {
   const profile: { [key: string]: { sum: number; count: number } } = {
@@ -162,9 +175,9 @@ export default function AuswertungPage() {
         return;
       }
 
-      const userAnswers: Answer[] = userAnswersData as any;
-      const allAnswersTyped: Answer[] = allAnswersWithDemo as any;
-      const extendedAnswers: ExtendedAnswer[] = allAnswersWithDemo as any;
+      const userAnswers: Answer[] = userAnswersData as unknown as Answer[];
+      const allAnswersTyped: Answer[] = allAnswersWithDemo as unknown as Answer[];
+      const extendedAnswers: ExtendedAnswer[] = allAnswersWithDemo as unknown as ExtendedAnswer[];
       
       console.log('Extended answers sample:', extendedAnswers.slice(0, 3));
       console.log('Extended answers length:', extendedAnswers.length);
@@ -529,18 +542,6 @@ export default function AuswertungPage() {
       { name: "Gesamthaltung", "Dein Score": overallUserAvg.toFixed(2), "Durchschnitt": overallAverageAvg.toFixed(2) }
   ];
 
-  // Neue Datenstruktur für die Plus-Minus-Grafik - kombinierte Werte
-  const plusMinusData = [
-    {
-      name: 'Deine Haltung',
-      value: userProfile.Positiv, // Positiver Wert
-    },
-    {
-      name: 'Deine Haltung',
-      value: -userProfile.Negativ, // Negativer Wert
-    },
-  ];
-
   // Werte für die Durchschnittslinien
   const avgPositiv = averageProfile.Positiv;
   const avgNegativ = -averageProfile.Negativ;
@@ -627,8 +628,8 @@ export default function AuswertungPage() {
           <h3 className="text-xl font-semibold mb-4">Was bedeutet das?</h3>
           <p className="text-gray-700">
               Dein Einstellungsprofil zeigt deine Tendenz zu positiven und negativen Annahmen über KI.
-              Ein hoher Wert bei <strong>'Positive Haltung'</strong> ({userProfile.Positiv.toFixed(2)}) deutet darauf hin, dass du Chancen und Nutzen in der KI siehst.
-              Ein hoher Wert bei <strong>'Negative Haltung'</strong> ({userProfile.Negativ.toFixed(2)}) spiegelt eher Bedenken und Skepsis wider (nach Umpolung).
+              Ein hoher Wert bei <strong>&apos;Positive Haltung&apos;</strong> ({userProfile.Positiv.toFixed(2)}) deutet darauf hin, dass du Chancen und Nutzen in der KI siehst.
+              Ein hoher Wert bei <strong>&apos;Negative Haltung&apos;</strong> ({userProfile.Negativ.toFixed(2)}) spiegelt eher Bedenken und Skepsis wider (nach Umpolung).
               Im Vergleich zum Durchschnitt kannst du deine eigene Position einordnen.
           </p>
       </div>
@@ -758,7 +759,7 @@ export default function AuswertungPage() {
                   label={{ value: 'KI-Haltung (Durchschnitt)', angle: -90, position: 'insideLeft' }}
                 />
                 <Tooltip 
-                  formatter={(value: any, name: string) => [
+                  formatter={(value: number, name: string) => [
                     `${Number(value).toFixed(2)}`, 
                     name === 'positive' ? 'Positive Haltung' : 'Negative Haltung'
                   ]}
@@ -769,11 +770,14 @@ export default function AuswertungPage() {
                       return (
                         <div className="bg-white p-3 border rounded shadow">
                           <p className="font-semibold">{`Altersgruppe: ${label}`}</p>
-                          {payload.map((entry, index) => (
-                            <p key={index} style={{ color: entry.color }}>
-                              {`${entry.name}: ${Number(entry.value).toFixed(2)}`}
-                            </p>
-                          ))}
+                          {payload.map((entry, index) => {
+                            const typedEntry = entry as TooltipPayload;
+                            return (
+                              <p key={index} style={{ color: typedEntry.color }}>
+                                {`${typedEntry.name}: ${Number(typedEntry.value).toFixed(2)}`}
+                              </p>
+                            );
+                          })}
                           <p className="text-gray-500 text-sm">{`Anzahl Personen: ${data?.count || 0}`}</p>
                         </div>
                       );
@@ -845,7 +849,7 @@ export default function AuswertungPage() {
                   label={{ value: 'KI-Haltung (Durchschnitt)', angle: -90, position: 'insideLeft' }}
                 />
                 <Tooltip 
-                  formatter={(value: any, name: string) => [
+                  formatter={(value: number, name: string) => [
                     `${Number(value).toFixed(2)}`, 
                     name === 'positive' ? 'Positive Haltung' : 'Negative Haltung'
                   ]}
@@ -856,11 +860,14 @@ export default function AuswertungPage() {
                       return (
                         <div className="bg-white p-3 border rounded shadow">
                           <p className="font-semibold">{`Berufserfahrungsgruppe: ${label}`}</p>
-                          {payload.map((entry, index) => (
-                            <p key={index} style={{ color: entry.color }}>
-                              {`${entry.name}: ${Number(entry.value).toFixed(2)}`}
-                            </p>
-                          ))}
+                          {payload.map((entry, index) => {
+                            const typedEntry = entry as TooltipPayload;
+                            return (
+                              <p key={index} style={{ color: typedEntry.color }}>
+                                {`${typedEntry.name}: ${Number(typedEntry.value).toFixed(2)}`}
+                              </p>
+                            );
+                          })}
                           <p className="text-gray-500 text-sm">{`Anzahl Personen: ${data?.count || 0}`}</p>
                         </div>
                       );

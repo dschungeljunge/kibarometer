@@ -27,7 +27,7 @@ type Question = DemographicQuestion | ItemQuestion;
 // Validierungsfunktionen
 const validateInput = {
   // Demografische Daten validieren
-  demographic: (questionId: string, value: any): boolean => {
+  demographic: (questionId: string, value: string | number): boolean => {
     if (!value || typeof value !== 'string') return false;
     
     const validOptions: { [key: string]: string[] } = {
@@ -42,7 +42,7 @@ const validateInput = {
   },
   
   // Item-Antworten validieren (1-5 Skala)
-  item: (value: any): boolean => {
+  item: (value: string | number): boolean => {
     const numValue = Number(value);
     return Number.isInteger(numValue) && numValue >= 1 && numValue <= 5;
   },
@@ -53,7 +53,7 @@ const validateInput = {
   },
   
   // Response ID validieren
-  validateResponseId: (id: any): boolean => {
+  validateResponseId: (id: string | number): boolean => {
     return typeof id === 'number' && id > 0;
   }
 };
@@ -87,7 +87,7 @@ const rateLimiter = {
 export default function TestPage() {
     const [questions, setQuestions] = useState<Question[]>([]);
     const [currentStep, setCurrentStep] = useState(0);
-    const [answers, setAnswers] = useState<Record<string, any>>({});
+    const [answers, setAnswers] = useState<Record<string, string | number>>({});
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [buttonDisabled, setButtonDisabled] = useState(false);
@@ -156,7 +156,7 @@ export default function TestPage() {
     }, []);
 
     // Speichert eine Antwort und geht zum nächsten Schritt
-    const handleAnswer = (questionId: string, value: any) => {
+    const handleAnswer = (questionId: string, value: string | number) => {
         // Input Validation
         if (currentQuestion.type === 'demographic') {
             if (!validateInput.demographic(currentQuestion.id, value)) {
@@ -186,7 +186,7 @@ export default function TestPage() {
     };
     
     // Funktion zum Absenden der gesammelten Daten
-    async function handleSubmit(finalAnswers: Record<string, any>) {
+    async function handleSubmit(finalAnswers: Record<string, string | number>) {
         // Rate Limiting Check
         if (!rateLimiter.canSubmit()) {
             alert('Zu viele Versuche. Bitte warten Sie eine Stunde bevor Sie es erneut versuchen.');
@@ -215,11 +215,11 @@ export default function TestPage() {
             const { data: responseData, error: responseError } = await supabase
                 .from("responses")
                 .insert([{ 
-                    age: validateInput.sanitizeString(finalAnswers.age), 
-                    experience: validateInput.sanitizeString(finalAnswers.experience), 
-                    gender: validateInput.sanitizeString(finalAnswers.gender), 
-                    school_level: validateInput.sanitizeString(finalAnswers.schoolLevel), 
-                    role: validateInput.sanitizeString(finalAnswers.role) 
+                    age: validateInput.sanitizeString(String(finalAnswers.age)), 
+                    experience: validateInput.sanitizeString(String(finalAnswers.experience)), 
+                    gender: validateInput.sanitizeString(String(finalAnswers.gender)), 
+                    school_level: validateInput.sanitizeString(String(finalAnswers.schoolLevel)), 
+                    role: validateInput.sanitizeString(String(finalAnswers.role)) 
                 }])
                 .select("id")
                 .single();
@@ -314,7 +314,7 @@ export default function TestPage() {
                                 {[1, 2, 3, 4, 5].map(value => (
                                     <button 
                                         key={value}
-                                        onClick={e => {
+                                        onClick={() => {
                                             if (!buttonDisabled) handleAnswer(`item_${currentQuestion.id}`, value);
                                         }}
                                         disabled={buttonDisabled}

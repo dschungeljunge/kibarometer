@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body className="bg-gray-50">
+      <body className={`bg-gray-50 ${geistSans.variable} ${geistMono.variable}`}>
         <nav className="w-full bg-white shadow mb-8">
           <div className="max-w-4xl mx-auto px-4 py-3 flex gap-6">
             <Link href="/">Start</Link>

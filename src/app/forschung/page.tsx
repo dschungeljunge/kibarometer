@@ -88,7 +88,7 @@ export default function ForschungPage() {
             }
 
             const items: Item[] = itemsData;
-            const answers: Answer[] = answersData as any;
+            const answers: Answer[] = answersData as unknown as Answer[];
 
             // 2. Deskriptive Statistiken
             const itemStats: ItemStats[] = items
@@ -230,7 +230,7 @@ export default function ForschungPage() {
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow">
-                    <h3 className="text-xl font-semibold mb-4">Skalenreliabilität (Cronbach's α)</h3>
+                    <h3 className="text-xl font-semibold mb-4">Skalenreliabilität (Cronbach&apos;s α)</h3>
                     <p>Dieser Wert misst die interne Konsistenz der Skalen. Werte &gt; 0.7 gelten als akzeptabel.</p>
                     <ul className="list-disc list-inside mt-4 space-y-2">
                         <li><strong>Positive Skala:</strong> {results.cronbachsAlpha.positive?.toFixed(3) ?? 'N/A'}</li>
