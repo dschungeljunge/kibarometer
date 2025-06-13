@@ -68,12 +68,6 @@ interface Demographics {
     schoolLevel: Record<string, number>;
 }
 
-// Statistische Hilfsfunktionen
-function variance(arr: number[]): number {
-    if (arr.length < 2) return 0;
-    return ss.variance(arr);
-}
-
 // ANOVA für Gruppenvergleiche
 function calculateOneWayANOVA(groups: number[][]): { fStatistic: number | null; pValue: number | null } {
     try {
@@ -145,7 +139,6 @@ function checkAssumptions(groups: number[][]): {
         
         const n = data.length;
         const sortedData = [...data].sort((a, b) => a - b);
-        const mean = ss.mean(data);
         const variance = ss.variance(data);
         
         if (variance === 0) return { statistic: 1, significant: false };
