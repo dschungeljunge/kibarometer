@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import { BarChart, Bar, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine, LineChart, Line } from "recharts";
+import Link from "next/link";
 
 // Typdefinitionen
 interface Answer {
@@ -521,7 +522,14 @@ function AuswertungContent() {
     fetchData();
   }, [responseId]);
   
-  if (loading) return <main className="text-center p-8">Lade Auswertung...</main>;
+  if (loading) return <div className="text-center p-8">Lade KI Puls...</div>;
+  if (!responseId) return (
+    <div className="max-w-xl mx-auto bg-white shadow p-8 mt-12 text-center rounded-lg">
+      <h1 className="text-3xl font-bold mb-4">Noch kein Ergebnis verfügbar</h1>
+      <p className="mb-6">Du hast den Test noch nicht abgeschlossen. Mach jetzt mit, um deinen persönlichen <span className="font-semibold text-blue-700">KI&nbsp;Puls</span> zu erfahren. Die Ergebnisse werden erst nach Abschluss angezeigt, damit sie deine Antworten nicht beeinflussen.</p>
+      <Link href="/test" className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow transition">Zum Test</Link>
+    </div>
+  );
   if (!userProfile || !averageProfile) return <main className="text-center p-8">Fehler bei der Auswertung. Bitte den Test erneut durchführen.</main>;
   
   const profileChartData: ProfileChartData[] = [
@@ -908,7 +916,7 @@ function AuswertungContent() {
 
 export default function AuswertungPage() {
   return (
-    <Suspense fallback={<div className="text-center p-8">Lade Auswertung...</div>}>
+    <Suspense fallback={<div className="text-center p-8">Lade KI Puls...</div>}>
       <AuswertungContent />
     </Suspense>
   );

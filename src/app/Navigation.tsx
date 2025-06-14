@@ -10,10 +10,8 @@ export default function Navigation() {
   const pathname = usePathname();
 
   const navLinks = [
-    { href: "/", label: "Start" },
     { href: "/test", label: "Test" },
-    { href: "/forschung", label: "Forschung" },
-    { href: "/impressum", label: "Impressum" },
+    { href: "/auswertung", label: "KI Puls" },
   ];
 
   // Blendet die Navigation auf der Test-Seite aus
@@ -26,7 +24,7 @@ export default function Navigation() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex-shrink-0">
-              <Link href="/" className="text-xl font-bold text-primary-600">KI-Barometer</Link>
+              <Link href="/" className="text-xl font-bold text-blue-700 hover:text-blue-800">edu-KI&nbsp;Puls</Link>
             </div>
             {/* Desktop Navigation */}
             <div className="hidden md:block">

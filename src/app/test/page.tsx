@@ -11,7 +11,7 @@ interface Item {
 }
 
 interface DemographicQuestion {
-    id: 'age' | 'experience' | 'gender' | 'schoolLevel' | 'role';
+    id: 'age' | 'experience' | 'gender' | 'schoolLevel' | 'role' | 'consent';
     type: 'demographic';
     label: string;
     inputType: 'number' | 'text' | 'select' | 'button';
@@ -35,7 +35,8 @@ const validateInput = {
       schoolLevel: ['Basisstufe', 'Primarschule', 'Sekundarstufe 1', 'Sekundarstufe 2', 'Hochschule', 'Universität'],
       experience: ['0-5', '6-10', '11-15', '16-20', '21-30', '31+'],
       gender: ['weiblich', 'männlich', 'divers', 'keine Angabe'],
-      age: ['unter 25', '25-34', '35-44', '45-54', '55-64', '65+']
+      age: ['unter 25', '25-34', '35-44', '45-54', '55-64', '65+'],
+      consent: ['ja', 'nein']
     };
     
     return validOptions[questionId]?.includes(value) || false;
@@ -116,14 +117,14 @@ export default function TestPage() {
             }
 
             const demographicQuestions: DemographicQuestion[] = [
-                { id: 'role', type: 'demographic', label: 'Welches ist Ihre primäre Funktion in der Schule?', inputType: 'button', options: [
+                { id: 'role', type: 'demographic', label: 'Welche ist deine primäre Funktion in der Schule?', inputType: 'button', options: [
                     { value: 'Lehrperson', label: 'Lehrperson' },
                     { value: 'Dozent:in', label: 'Dozent:in' },
                     { value: 'Schulleiter:in', label: 'Schulleiter:in' },
                     { value: 'Wissenschaftler:in', label: 'Wissenschaftler:in' },
                     { value: 'sonstiges', label: 'Sonstiges' },
                 ]},
-                { id: 'schoolLevel', type: 'demographic', label: 'Auf welcher Schulstufe unterrichten Sie hauptsächlich?', inputType: 'button', options: [
+                { id: 'schoolLevel', type: 'demographic', label: 'Auf welcher Schulstufe unterrichtest du hauptsächlich?', inputType: 'button', options: [
                     { value: 'Basisstufe', label: 'Basisstufe' },
                     { value: 'Primarschule', label: 'Primarschule' },
                     { value: 'Sekundarstufe 1', label: 'Sekundarstufe 1' },
@@ -131,7 +132,7 @@ export default function TestPage() {
                     { value: 'Hochschule', label: 'Hochschule' },
                     { value: 'Universität', label: 'Universität' },
                 ]},
-                { id: 'experience', type: 'demographic', label: 'Wie viele Jahre Berufserfahrung haben Sie?', inputType: 'button', options: [
+                { id: 'experience', type: 'demographic', label: 'Wie viele Jahre Unterrichtserfahrung hast du?', inputType: 'button', options: [
                     { value: '0-5', label: '0–5 Jahre' },
                     { value: '6-10', label: '6–10 Jahre' },
                     { value: '11-15', label: '11–15 Jahre' },
@@ -139,19 +140,23 @@ export default function TestPage() {
                     { value: '21-30', label: '21–30 Jahre' },
                     { value: '31+', label: '31+ Jahre' },
                 ]},
-                { id: 'gender', type: 'demographic', label: 'Welchem Geschlecht fühlen Sie sich zugehörig?', inputType: 'button', options: [
+                { id: 'gender', type: 'demographic', label: 'Welchem Geschlecht fühlst du dich zugehörig?', inputType: 'button', options: [
                     { value: 'weiblich', label: 'Weiblich' },
                     { value: 'männlich', label: 'Männlich' },
                     { value: 'divers', label: 'Divers' },
                     { value: 'keine Angabe', label: 'Keine Angabe' }
                 ]},
-                { id: 'age', type: 'demographic', label: 'Wie alt sind Sie?', inputType: 'button', options: [
+                { id: 'age', type: 'demographic', label: 'Wie alt bist du?', inputType: 'button', options: [
                     { value: 'unter 25', label: 'Unter 25' },
                     { value: '25-34', label: '25–34' },
                     { value: '35-44', label: '35–44' },
                     { value: '45-54', label: '45–54' },
                     { value: '55-64', label: '55–64' },
                     { value: '65+', label: '65+' },
+                ]},
+                { id: 'consent', type: 'demographic', label: 'Ich stimme zu, dass meine anonymisierten Antworten für wissenschaftliche Auswertungen verwendet werden dürfen.', inputType: 'button', options: [
+                    { value: 'ja', label: 'Ja, gerne' },
+                    { value: 'nein', label: 'Nein, nur für mich' },
                 ]},
             ];
 
@@ -167,12 +172,12 @@ export default function TestPage() {
         // Input Validation
         if (currentQuestion.type === 'demographic') {
             if (!validateInput.demographic(currentQuestion.id, value)) {
-                alert('Ungültige Eingabe. Bitte wählen Sie eine gültige Option.');
+                alert('Ungültige Eingabe. Bitte wähle eine gültige Option.');
                 return;
             }
         } else if (currentQuestion.type === 'item') {
             if (!validateInput.item(value)) {
-                alert('Ungültige Bewertung. Bitte wählen Sie einen Wert zwischen 1 und 5.');
+                alert('Ungültige Bewertung. Bitte wähle einen Wert zwischen 1 und 5.');
                 return;
             }
         }
@@ -196,7 +201,7 @@ export default function TestPage() {
     async function handleSubmit(finalAnswers: Record<string, string | number>) {
         // Rate Limiting Check
         if (!rateLimiter.canSubmit()) {
-            alert('Zu viele Versuche. Bitte warten Sie eine Stunde bevor Sie es erneut versuchen.');
+            alert('Zu viele Versuche. Bitte warte eine Stunde, bevor du es erneut versuchst.');
             return;
         }
         
@@ -204,7 +209,7 @@ export default function TestPage() {
         
         try {
             // Validiere alle demografischen Antworten
-            const demographicQuestions = ['role', 'schoolLevel', 'experience', 'gender', 'age'];
+            const demographicQuestions = ['role', 'schoolLevel', 'experience', 'gender', 'age', 'consent'];
             for (const qId of demographicQuestions) {
                 if (!validateInput.demographic(qId, finalAnswers[qId])) {
                     throw new Error(`Ungültige demografische Daten: ${qId}`);
@@ -226,7 +231,8 @@ export default function TestPage() {
                     experience: validateInput.sanitizeString(String(finalAnswers.experience)), 
                     gender: validateInput.sanitizeString(String(finalAnswers.gender)), 
                     school_level: validateInput.sanitizeString(String(finalAnswers.schoolLevel)), 
-                    role: validateInput.sanitizeString(String(finalAnswers.role)) 
+                    role: validateInput.sanitizeString(String(finalAnswers.role)),
+                    consent: validateInput.sanitizeString(String(finalAnswers.consent))
                 }])
                 .select("id")
                 .single();
@@ -287,8 +293,15 @@ export default function TestPage() {
     const progress = Math.round(((currentStep) / questions.length) * 100);
     const currentQuestion = questions[currentStep];
 
+    // Hilfsfunktionen für Navigation
+    const handleBack = () => {
+        if (currentStep > 0) {
+            setCurrentStep(currentStep - 1);
+        }
+    };
+
     return (
-        <div className="flex flex-col min-h-screen bg-gray-50">
+        <div className="flex flex-col min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50">
             <div className="w-full bg-gray-300 h-4 sticky top-0 left-0 z-20 shadow">
                 <div className="bg-blue-600 h-4 rounded-b" style={{ width: `${progress}%`, transition: 'width 0.3s ease-in-out' }}></div>
             </div>
@@ -306,18 +319,30 @@ export default function TestPage() {
                                         key={opt.value}
                                         type="button"
                                         onClick={() => handleAnswer(currentQuestion.id, opt.value)}
-                                        className="w-full max-w-xs py-4 px-6 text-lg border-2 border-gray-200 rounded-lg bg-white hover:bg-blue-50 hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 font-medium text-gray-700 hover:text-blue-700"
+                                        className={`w-full max-w-xs py-4 px-6 text-lg border-2 rounded-lg transition-all duration-200 font-medium focus:outline-none focus:ring-2 ${answers[currentQuestion.id] === opt.value ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-blue-50 hover:border-blue-400 hover:text-blue-700'}`}
                                     >
                                         {opt.label}
                                     </button>
                                 ))}
                             </div>
+                            {/* Zurück-Button */}
+                            {currentStep > 0 && (
+                                <div className="mt-6 flex justify-start">
+                                    <button
+                                        type="button"
+                                        onClick={handleBack}
+                                        className="py-2 px-4 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm rounded-lg transition-colors duration-200"
+                                    >
+                                        Zurück
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                     {currentQuestion.type === 'item' && (
                         <div className="bg-white rounded-xl shadow-lg p-8 min-h-[350px] flex flex-col justify-center">
                             <div className="mb-2 text-sm font-medium text-blue-600 uppercase tracking-wide">
-                                Frage {currentStep - 4} von {questions.length - 5} {/* 5 demografische Fragen */}
+                                Frage {currentStep - 5} von {questions.length - 6} {/* 6 demografische Fragen */}
                             </div>
                             <p className="text-xl md:text-2xl mb-10 leading-relaxed text-gray-800 font-medium">{currentQuestion.text}</p>
                             <div className="flex justify-center items-center gap-2 md:gap-4 mb-6">
@@ -329,7 +354,7 @@ export default function TestPage() {
                                             if (!buttonDisabled) handleAnswer(`item_${currentQuestion.id}`, value);
                                         }}
                                         disabled={buttonDisabled}
-                                        className={`w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-lg font-bold border-2 border-gray-300 rounded-full hover:bg-blue-100 hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-110 ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                        className={`w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-lg font-bold rounded-full transition-all duration-200 transform ${buttonDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:scale-110'} ${answers[`item_${currentQuestion.id}`] === value ? 'bg-blue-100 border-blue-500 text-blue-700' : 'border-2 border-gray-300 hover:bg-blue-100 hover:border-blue-500'}`}
                                         aria-label={`Bewerte mit ${value}`}
                                     >
                                         {value}
@@ -337,20 +362,23 @@ export default function TestPage() {
                                 ))}
                                 <span className="text-sm text-gray-500 w-24 text-left font-medium">Stimme voll zu</span>
                             </div>
+                            {/* Zurück-Button */}
+                            {currentStep > 0 && (
+                                <div className="mt-6 flex justify-start">
+                                    <button
+                                        type="button"
+                                        onClick={handleBack}
+                                        className="py-2 px-4 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm rounded-lg transition-colors duration-200"
+                                    >
+                                        Zurück
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
             </main>
-            <footer className="p-4 text-center">
-                <a 
-                    href="/datenschutz" 
-                    className="text-sm text-gray-500 hover:text-blue-600 underline"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    Datenschutzerklärung
-                </a>
-            </footer>
+            {/* Lokaler Footer entfernt – globaler Footer übernimmt */}
         </div>
     );
 } 

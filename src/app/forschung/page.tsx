@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import * as ss from "simple-statistics";
+import Link from "next/link";
 
 // Typ-Definitionen
 interface Item {
@@ -13,7 +14,20 @@ interface Item {
 interface Answer {
     value: number;
     item_id: number;
-    responses: { id: string; gender: string; age: string; experience: string; role: string; school_level: string } | null;
+    responses: { id: string; gender: string; age: string; experience: string; role: string; school_level: string; consent?: string } | null;
+}
+
+interface ExtendedAnswer extends Answer {
+    response_id: number;
+    responses: {
+        id: string;
+        gender: string;
+        age: string;
+        experience: string;
+        role: string;
+        school_level: string;
+        consent?: string;
+    } | null;
 }
 
 interface ItemStats {
@@ -233,12 +247,18 @@ export default function ForschungPage() {
     const [results, setResults] = useState<AnalysisResult | null>(null);
     const [demographics, setDemographics] = useState<Demographics | null>(null);
     const [loading, setLoading] = useState(true);
+    const [showInfo, setShowInfo] = useState(true);
 
     useEffect(() => {
         const runAnalysis = async () => {
             // 1. Alle benötigten Daten laden
             const { data: itemsData, error: itemsError } = await supabase.from("items").select('id, text, category');
-            const { data: answersData, error: answersError } = await supabase.from("answers").select(`value, item_id, responses ( id, gender, age, experience, role, school_level )`);
+            const { data: answersData, error: answersError } = await supabase.from("answers").select(`
+                value, 
+                response_id,
+                items ( category ),
+                responses ( id, role, school_level, age, experience, gender, consent )
+            `);
             const { data: responsesData, error: responsesError } = await supabase.from("responses").select('age, experience, gender, role, school_level');
 
             if (itemsError || answersError || responsesError || !itemsData || !answersData || !responsesData) {
@@ -248,11 +268,17 @@ export default function ForschungPage() {
             }
 
             const items: Item[] = itemsData;
-            const answers: Answer[] = answersData as unknown as Answer[];
+            const extendedAnswers: ExtendedAnswer[] = answersData as unknown as ExtendedAnswer[];
+
+            // Filter nach Einverständnis
+            const consentFiltered = extendedAnswers.filter(ans => ans.responses?.consent !== 'nein');
+
+            const filteredExtended: ExtendedAnswer[] = consentFiltered;
+            const allAnswersTyped: Answer[] = consentFiltered as unknown as Answer[];
 
             // 2. Antworten pro Teilnehmer gruppieren
-            const responsesByParticipant = answers.reduce((acc, answer) => {
-                const responseId = answer.responses?.id;
+            const responsesByParticipant = filteredExtended.reduce((acc, answer) => {
+                const responseId = String(answer.response_id);
                 if (!responseId) return acc;
                 if (!acc[responseId]) {
                     acc[responseId] = { 
@@ -280,7 +306,7 @@ export default function ForschungPage() {
                 return items
                     .filter(item => item.category !== 'Kontrolle')
                     .map(item => {
-                        const itemAnswers = answers.filter(a => a.item_id === item.id).map(a => a.value);
+                        const itemAnswers = allAnswersTyped.filter(a => a.item_id === item.id).map(a => a.value);
                         if (itemAnswers.length === 0) return { 
                             text: item.text, 
                             mean: 'N/A', 
@@ -516,265 +542,279 @@ export default function ForschungPage() {
     }
 
     return (
-        <main className="max-w-6xl mx-auto p-4">
-            <h2 className="text-3xl font-bold mb-6 text-center">Forschungsergebnisse</h2>
-            
-            <div className="bg-white p-6 rounded-lg shadow mb-8">
-                <h3 className="text-xl font-semibold mb-4">Beschreibung der Stichprobe</h3>
-                <div className="grid md:grid-cols-2 gap-6">
-                    <div>
-                        <p className="font-medium mb-2"><strong>Anzahl Teilnehmende (N):</strong> {demographics.n}</p>
-                        
-                        <div className="mb-4">
-                            <p className="font-medium mb-1">Geschlechterverteilung:</p>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {Object.entries(demographics.gender).map(([key, value]) => (
-                                    <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="mb-4">
-                            <p className="font-medium mb-1">Altersverteilung:</p>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {Object.entries(demographics.age).map(([key, value]) => (
-                                    <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="mb-4">
-                            <p className="font-medium mb-1">Berufserfahrung:</p>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {Object.entries(demographics.experience).map(([key, value]) => (
-                                    <li key={key}>{key} Jahre: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="mb-4">
-                            <p className="font-medium mb-1">Berufliche Rolle:</p>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {Object.entries(demographics.role).map(([key, value]) => (
-                                    <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        <div className="mb-4">
-                            <p className="font-medium mb-1">Schulstufe:</p>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {Object.entries(demographics.schoolLevel).map(([key, value]) => (
-                                    <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
+        <>
+        {showInfo && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm text-center">
+                    <h2 className="text-xl font-bold mb-4">Hinweis</h2>
+                    <p className="mb-6">Auf dieser Seite findest du quantitative Auswertungen, die Einblicke für die Wissenschaft ermöglichen.</p>
+                    <button onClick={() => setShowInfo(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">Verstanden</button>
                 </div>
             </div>
-            
-            <div className="bg-white p-6 rounded-lg shadow mb-8">
-                <h3 className="text-xl font-semibold mb-4">Item-Analyse</h3>
-                <p className="mb-4">
-                    Deskriptive Statistiken für jedes Item des Fragebogens. Die Item-Total-Korrelation 
-                    gibt an, wie gut ein Item mit dem Gesamtscore korreliert (Werte &gt; 0.3 gelten als gut).
-                </p>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mittelwert</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Standardabweichung</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item-Total-Korrelation</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategorie</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {results.itemStats.map((stat, index) => (
-                                <tr key={index}>
-                                    <td className="px-6 py-4 whitespace-normal text-sm text-gray-700">{stat.text}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.mean}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.stdDev}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.itemTotalCorrelation}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.category}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        )}
 
-            <div className="bg-white p-6 rounded-lg shadow mb-8">
-                <h3 className="text-xl font-semibold mb-4">Systematische Gruppenvergleiche</h3>
-                <p className="mb-6 text-gray-700">
-                    In diesem Kapitel werden die Einstellungen zur KI systematisch nach verschiedenen demografischen 
-                    Variablen verglichen. Für jede Variable werden die Mittelwerte und Standardabweichungen für die 
-                    positiven und negativen KI-Einstellungen sowie der Gesamtscore berichtet. Die statistische 
-                    Signifikanz der Gruppenunterschiede wird mittels einfaktorieller Varianzanalyse (ANOVA) geprüft.
-                </p>
-
-                {results.groupComparisons.map((comparison, index) => (
-                    <div key={index} className="mb-8 border-l-4 border-blue-500 pl-6">
-                        <h4 className="text-xl font-semibold mb-4">{comparison.variable}</h4>
-                        
-                        <div className="overflow-x-auto mb-4">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gruppe</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">N</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>pos</sub></th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>pos</sub></th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>neg</sub></th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>neg</sub></th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>total</sub></th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>total</sub></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {comparison.groups.map((group, groupIndex) => (
-                                        <tr key={groupIndex} className={groupIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{group.name}</td>
-                                            <td className="px-4 py-3 text-sm">{group.n}</td>
-                                            <td className="px-4 py-3 text-sm">{group.meanPositive.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-sm">{group.stdDevPositive.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-sm">{group.meanNegative.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-sm">{group.stdDevNegative.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-sm font-semibold">{group.meanTotal.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-sm">{group.stdDevTotal.toFixed(2)}</td>
-                                        </tr>
+        <div className="p-4 md:p-8 bg-gradient-to-b from-blue-50 via-white to-blue-50">
+            <main className="max-w-6xl mx-auto p-4">
+                <h2 className="text-3xl font-bold mb-6 text-center">Forschungsergebnisse</h2>
+                
+                <div className="bg-white p-6 rounded-lg shadow mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Beschreibung der Stichprobe</h3>
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <p className="font-medium mb-2"><strong>Anzahl Teilnehmende (N):</strong> {demographics.n}</p>
+                            
+                            <div className="mb-4">
+                                <p className="font-medium mb-1">Geschlechterverteilung:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {Object.entries(demographics.gender).map(([key, value]) => (
+                                        <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
                                     ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* Voraussetzungsprüfungen */}
-                        <div className="bg-gray-50 border p-4 rounded-lg mb-4">
-                            <h5 className="font-semibold mb-3">Voraussetzungsprüfungen für ANOVA</h5>
-                            <div className="grid md:grid-cols-3 gap-4 text-sm">
-                                <div>
-                                    <p className="font-medium">Stichprobengröße</p>
-                                    <p className="text-gray-700">
-                                        {comparison.assumptions.sampleSizeTest.passed ? 'Ausreichend' : 'Unzureichend'}
-                                    </p>
-                                    <p className="text-gray-600 text-xs">{comparison.assumptions.sampleSizeTest.details}</p>
-                                </div>
-                                <div>
-                                    <p className="font-medium">Normalverteilung</p>
-                                    <p className="text-gray-700">
-                                        {comparison.assumptions.normalityTest.passed ? 'Gegeben' : 'Verletzt'}
-                                    </p>
-                                    <p className="text-gray-600 text-xs">{comparison.assumptions.normalityTest.details}</p>
-                                </div>
-                                <div>
-                                    <p className="font-medium">Varianzenhomogenität</p>
-                                    <p className="text-gray-700">
-                                        {comparison.assumptions.homogeneityTest.passed ? 'Gegeben' : 'Verletzt'}
-                                    </p>
-                                    <p className="text-gray-600 text-xs">{comparison.assumptions.homogeneityTest.details}</p>
-                                </div>
+                                </ul>
                             </div>
-                            <div className="mt-3 pt-3 border-t border-gray-300">
-                                <p className="font-medium text-gray-700">
-                                    Gesamtbewertung: {comparison.assumptions.overallValid 
-                                        ? 'ANOVA ist zulässig - alle Voraussetzungen erfüllt' 
-                                        : 'ANOVA-Voraussetzungen nicht vollständig erfüllt'
-                                    }
-                                </p>
+
+                            <div className="mb-4">
+                                <p className="font-medium mb-1">Altersverteilung:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {Object.entries(demographics.age).map(([key, value]) => (
+                                        <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div className="mb-4">
+                                <p className="font-medium mb-1">Berufserfahrung:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {Object.entries(demographics.experience).map(([key, value]) => (
+                                        <li key={key}>{key} Jahre: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
+                                    ))}
+                                </ul>
                             </div>
                         </div>
 
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <h5 className="font-semibold mb-2">Statistische Auswertung (ANOVA)</h5>
-                            {comparison.assumptions.overallValid ? (
-                                <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <div className="mb-4">
+                                <p className="font-medium mb-1">Berufliche Rolle:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {Object.entries(demographics.role).map(([key, value]) => (
+                                        <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div className="mb-4">
+                                <p className="font-medium mb-1">Schulstufe:</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {Object.entries(demographics.schoolLevel).map(([key, value]) => (
+                                        <li key={key}>{key}: {value} ({(value / demographics.n * 100).toFixed(1)}%)</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Item-Analyse</h3>
+                    <p className="mb-4">
+                        Deskriptive Statistiken für jedes Item des Fragebogens. Die Item-Total-Korrelation 
+                        gibt an, wie gut ein Item mit dem Gesamtscore korreliert (Werte &gt; 0.3 gelten als gut).
+                    </p>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mittelwert</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Standardabweichung</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item-Total-Korrelation</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategorie</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {results.itemStats.map((stat, index) => (
+                                    <tr key={index}>
+                                        <td className="px-6 py-4 whitespace-normal text-sm text-gray-700">{stat.text}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.mean}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.stdDev}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.itemTotalCorrelation}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.category}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Systematische Gruppenvergleiche</h3>
+                    <p className="mb-6 text-gray-700">
+                        In diesem Kapitel werden die Einstellungen zur KI systematisch nach verschiedenen demografischen 
+                        Variablen verglichen. Für jede Variable werden die Mittelwerte und Standardabweichungen für die 
+                        positiven und negativen KI-Einstellungen sowie der Gesamtscore berichtet. Die statistische 
+                        Signifikanz der Gruppenunterschiede wird mittels einfaktorieller Varianzanalyse (ANOVA) geprüft.
+                    </p>
+
+                    {results.groupComparisons.map((comparison, index) => (
+                        <div key={index} className="mb-8 border-l-4 border-blue-500 pl-6">
+                            <h4 className="text-xl font-semibold mb-4">{comparison.variable}</h4>
+                            
+                            <div className="overflow-x-auto mb-4">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gruppe</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">N</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>pos</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>pos</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>neg</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>neg</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>total</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>total</sub></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {comparison.groups.map((group, groupIndex) => (
+                                            <tr key={groupIndex} className={groupIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{group.name}</td>
+                                                <td className="px-4 py-3 text-sm">{group.n}</td>
+                                                <td className="px-4 py-3 text-sm">{group.meanPositive.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm">{group.stdDevPositive.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm">{group.meanNegative.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm">{group.stdDevNegative.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm font-semibold">{group.meanTotal.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-sm">{group.stdDevTotal.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Voraussetzungsprüfungen */}
+                            <div className="bg-gray-50 border p-4 rounded-lg mb-4">
+                                <h5 className="font-semibold mb-3">Voraussetzungsprüfungen für ANOVA</h5>
+                                <div className="grid md:grid-cols-3 gap-4 text-sm">
                                     <div>
-                                        <p><strong>F-Statistik:</strong> {comparison.anova.fStatistic?.toFixed(3) ?? 'N/A'}</p>
-                                        <p><strong>p-Wert:</strong> {comparison.anova.pValue?.toFixed(3) ?? 'N/A'}</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-medium text-gray-700">
-                                            {comparison.anova.significant 
-                                                ? 'Statistisch signifikante Unterschiede (p < 0.05)' 
-                                                : 'Keine statistisch signifikanten Unterschiede (p ≥ 0.05)'
-                                            }
+                                        <p className="font-medium">Stichprobengröße</p>
+                                        <p className="text-gray-700">
+                                            {comparison.assumptions.sampleSizeTest.passed ? 'Ausreichend' : 'Unzureichend'}
                                         </p>
+                                        <p className="text-gray-600 text-xs">{comparison.assumptions.sampleSizeTest.details}</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium">Normalverteilung</p>
+                                        <p className="text-gray-700">
+                                            {comparison.assumptions.normalityTest.passed ? 'Gegeben' : 'Verletzt'}
+                                        </p>
+                                        <p className="text-gray-600 text-xs">{comparison.assumptions.normalityTest.details}</p>
+                                    </div>
+                                    <div>
+                                        <p className="font-medium">Varianzenhomogenität</p>
+                                        <p className="text-gray-700">
+                                            {comparison.assumptions.homogeneityTest.passed ? 'Gegeben' : 'Verletzt'}
+                                        </p>
+                                        <p className="text-gray-600 text-xs">{comparison.assumptions.homogeneityTest.details}</p>
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="text-center text-gray-600">
-                                    <p>ANOVA wurde nicht durchgeführt</p>
-                                    <p className="text-sm">Voraussetzungen für parametrische Tests nicht erfüllt</p>
+                                <div className="mt-3 pt-3 border-t border-gray-300">
+                                    <p className="font-medium text-gray-700">
+                                        Gesamtbewertung: {comparison.assumptions.overallValid 
+                                            ? 'ANOVA ist zulässig - alle Voraussetzungen erfüllt' 
+                                            : 'ANOVA-Voraussetzungen nicht vollständig erfüllt'
+                                        }
+                                    </p>
                                 </div>
-                            )}
-                        </div>
+                            </div>
 
-                        <div className="mt-4 text-sm text-gray-600">
-                            <p><strong>Interpretation:</strong> {
-                                !comparison.assumptions.overallValid
-                                    ? `Die statistische Auswertung ist aufgrund verletzter Testvoraussetzungen nicht verlässlich. 
-                                       Deskriptiv zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
-                                           group.meanTotal > max.meanTotal ? group : max
-                                       ).name}" die höchste mittlere Bewertung (M = ${comparison.groups.reduce((max, group) => 
-                                           group.meanTotal > max.meanTotal ? group : max
-                                       ).meanTotal.toFixed(2)}).`
-                                    : comparison.anova.significant
-                                        ? `Die Gruppen unterscheiden sich statistisch signifikant in ihren KI-Einstellungen. 
-                                           Die höchste positive Einstellung zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <h5 className="font-semibold mb-2">Statistische Auswertung (ANOVA)</h5>
+                                {comparison.assumptions.overallValid ? (
+                                    <div className="grid md:grid-cols-2 gap-4">
+                                        <div>
+                                            <p><strong>F-Statistik:</strong> {comparison.anova.fStatistic?.toFixed(3) ?? 'N/A'}</p>
+                                            <p><strong>p-Wert:</strong> {comparison.anova.pValue?.toFixed(3) ?? 'N/A'}</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-gray-700">
+                                                {comparison.anova.significant 
+                                                    ? 'Statistisch signifikante Unterschiede (p < 0.05)' 
+                                                    : 'Keine statistisch signifikanten Unterschiede (p ≥ 0.05)'
+                                                }
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center text-gray-600">
+                                        <p>ANOVA wurde nicht durchgeführt</p>
+                                        <p className="text-sm">Voraussetzungen für parametrische Tests nicht erfüllt</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-4 text-sm text-gray-600">
+                                <p><strong>Interpretation:</strong> {
+                                    !comparison.assumptions.overallValid
+                                        ? `Die statistische Auswertung ist aufgrund verletzter Testvoraussetzungen nicht verlässlich. 
+                                           Deskriptiv zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
                                                group.meanTotal > max.meanTotal ? group : max
-                                           ).name}" (M = ${comparison.groups.reduce((max, group) => 
+                                           ).name}" die höchste mittlere Bewertung (M = ${comparison.groups.reduce((max, group) => 
                                                group.meanTotal > max.meanTotal ? group : max
                                            ).meanTotal.toFixed(2)}).`
-                                        : `Die Gruppen unterscheiden sich nicht statistisch signifikant in ihren KI-Einstellungen. 
-                                           Die Mittelwerte liegen zwischen ${Math.min(...comparison.groups.map(g => g.meanTotal)).toFixed(2)} 
-                                           und ${Math.max(...comparison.groups.map(g => g.meanTotal)).toFixed(2)}.`
-                            }</p>
-                        </div>
-                    </div>
-                ))}
-
-                <div className="mt-8 bg-blue-50 p-6 rounded-lg">
-                    <h4 className="text-lg font-semibold mb-3 text-blue-800">Zusammenfassung der Gruppenvergleiche</h4>
-                    
-                    {/* Testvalidität */}
-                    <div className="mb-4 p-3 bg-white rounded border">
-                        <p className="font-medium mb-2">Testvalidität (Voraussetzungsprüfungen):</p>
-                        <div className="grid md:grid-cols-2 gap-2 text-sm">
-                            <div>
-                                <p><strong>Zulässige Tests:</strong></p>
-                                <ul className="list-disc list-inside ml-4">
-                                    {results.groupComparisons
-                                        .filter(comp => comp.assumptions.overallValid)
-                                        .map((comp, idx) => (
-                                            <li key={idx} className="text-gray-700">{comp.variable}</li>
-                                        ))
-                                    }
-                                    {results.groupComparisons.filter(comp => comp.assumptions.overallValid).length === 0 && (
-                                        <li className="text-gray-600">Keine Tests erfüllen alle Voraussetzungen</li>
-                                    )}
-                                </ul>
+                                        : comparison.anova.significant
+                                            ? `Die Gruppen unterscheiden sich statistisch signifikant in ihren KI-Einstellungen. 
+                                               Die höchste positive Einstellung zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
+                                                   group.meanTotal > max.meanTotal ? group : max
+                                               ).name}" (M = ${comparison.groups.reduce((max, group) => 
+                                                   group.meanTotal > max.meanTotal ? group : max
+                                               ).meanTotal.toFixed(2)}).`
+                                            : `Die Gruppen unterscheiden sich nicht statistisch signifikant in ihren KI-Einstellungen. 
+                                               Die Mittelwerte liegen zwischen ${Math.min(...comparison.groups.map(g => g.meanTotal)).toFixed(2)} 
+                                               und ${Math.max(...comparison.groups.map(g => g.meanTotal)).toFixed(2)}.`
+                                }</p>
                             </div>
-                            <div>
-                                <p><strong>Eingeschränkte Tests:</strong></p>
-                                <ul className="list-disc list-inside ml-4">
-                                    {results.groupComparisons
-                                        .filter(comp => !comp.assumptions.overallValid)
-                                        .map((comp, idx) => (
-                                            <li key={idx} className="text-gray-700">{comp.variable}</li>
-                                        ))
-                                    }
-                                    {results.groupComparisons.filter(comp => !comp.assumptions.overallValid).length === 0 && (
-                                        <li className="text-gray-600">Alle Tests erfüllen die Voraussetzungen</li>
-                                    )}
-                                </ul>
+                        </div>
+                    ))}
+
+                    <div className="mt-8 bg-blue-50 p-6 rounded-lg">
+                        <h4 className="text-lg font-semibold mb-3 text-blue-800">Zusammenfassung der Gruppenvergleiche</h4>
+                        
+                        {/* Testvalidität */}
+                        <div className="mb-4 p-3 bg-white rounded border">
+                            <p className="font-medium mb-2">Testvalidität (Voraussetzungsprüfungen):</p>
+                            <div className="grid md:grid-cols-2 gap-2 text-sm">
+                                <div>
+                                    <p><strong>Zulässige Tests:</strong></p>
+                                    <ul className="list-disc list-inside ml-4">
+                                        {results.groupComparisons
+                                            .filter(comp => comp.assumptions.overallValid)
+                                            .map((comp, idx) => (
+                                                <li key={idx} className="text-gray-700">{comp.variable}</li>
+                                            ))
+                                        }
+                                        {results.groupComparisons.filter(comp => comp.assumptions.overallValid).length === 0 && (
+                                            <li className="text-gray-600">Keine Tests erfüllen alle Voraussetzungen</li>
+                                        )}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p><strong>Eingeschränkte Tests:</strong></p>
+                                    <ul className="list-disc list-inside ml-4">
+                                        {results.groupComparisons
+                                            .filter(comp => !comp.assumptions.overallValid)
+                                            .map((comp, idx) => (
+                                                <li key={idx} className="text-gray-700">{comp.variable}</li>
+                                            ))
+                                        }
+                                        {results.groupComparisons.filter(comp => !comp.assumptions.overallValid).length === 0 && (
+                                            <li className="text-gray-600">Alle Tests erfüllen die Voraussetzungen</li>
+                                        )}
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
+        </>
     );
 }
