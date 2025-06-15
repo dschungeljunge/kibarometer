@@ -269,8 +269,19 @@ export default function ForschungPage() {
             const items: Item[] = itemsData;
             const extendedAnswers: ExtendedAnswer[] = answersData as unknown as ExtendedAnswer[];
 
-            // Filter nach Einverständnis
-            const consentFiltered = extendedAnswers.filter(ans => ans.responses?.consent !== 'nein');
+            // TEMPORÄR: Alle Daten einschließen für Debugging - Filter später wieder aktivieren
+            // Filter nach Einverständnis - nur wenn consent explizit auf 'nein' steht ausschließen
+            // Bestehende Daten ohne consent Feld (null/undefined) werden eingeschlossen
+            const consentFiltered = extendedAnswers; // TEMPORÄR: Alle Daten verwenden
+            // const consentFiltered = extendedAnswers.filter(ans => {
+            //     const consent = ans.responses?.consent;
+            //     return consent !== 'nein'; // null, undefined, 'ja' werden alle eingeschlossen
+            // });
+
+            // Debug-Log
+            console.log('Original answers:', extendedAnswers.length);
+            console.log('Filtered answers:', consentFiltered.length);
+            console.log('Consent values:', extendedAnswers.map(ans => ans.responses?.consent).filter((c, i, arr) => arr.indexOf(c) === i));
 
             const filteredExtended: ExtendedAnswer[] = consentFiltered;
             const allAnswersTyped: Answer[] = consentFiltered as unknown as Answer[];
@@ -483,35 +494,37 @@ export default function ForschungPage() {
 
             const groupComparisons = calculateGroupComparisons();
 
-            // Demografie-Berechnungen - erweitert
-            const n = responsesData.length;
+            // Demografie-Berechnungen - aus gefilterten Daten (nur Teilnehmer mit gültigen Antworten)
+            const uniqueResponseIds = new Set(filteredExtended.map(ans => ans.response_id));
+            const filteredResponses = Object.values(responsesByParticipant);
+            const n = filteredResponses.length;
             
-            // Alle demografischen Variablen aufbereiten
-            const genderCounts = responsesData.reduce((acc, r) => {
+            // Alle demografischen Variablen aus gefilterten Daten aufbereiten
+            const genderCounts = filteredResponses.reduce((acc, r) => {
                 const gender = r.gender || 'unbekannt';
                 acc[gender] = (acc[gender] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
-            const ageCounts = responsesData.reduce((acc, r) => {
+            const ageCounts = filteredResponses.reduce((acc, r) => {
                 const age = r.age || 'unbekannt';
                 acc[age] = (acc[age] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
-            const experienceCounts = responsesData.reduce((acc, r) => {
+            const experienceCounts = filteredResponses.reduce((acc, r) => {
                 const experience = r.experience || 'unbekannt';
                 acc[experience] = (acc[experience] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
-            const roleCounts = responsesData.reduce((acc, r) => {
+            const roleCounts = filteredResponses.reduce((acc, r) => {
                 const role = r.role || 'unbekannt';
                 acc[role] = (acc[role] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
-            const schoolLevelCounts = responsesData.reduce((acc, r) => {
+            const schoolLevelCounts = filteredResponses.reduce((acc, r) => {
                 const schoolLevel = r.school_level || 'unbekannt';
                 acc[schoolLevel] = (acc[schoolLevel] || 0) + 1;
                 return acc;
