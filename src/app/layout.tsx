@@ -49,6 +49,7 @@ export default function RootLayout({
             <Link href="/impressum" className="hover:text-primary-600 underline">Impressum</Link>
             <Link href="/datenschutz" className="hover:text-primary-600 underline">Datenschutz</Link>
             <a href="https://github.com/dschungeljunge/kibarometer" target="_blank" rel="noopener noreferrer" className="hover:text-primary-600 underline">GitHub</a>
+            <Link href="/auswertung-neu" className="hover:text-primary-600 underline opacity-30 hover:opacity-100 transition-opacity">Beta</Link>
           </div>
         </footer>
       </body>

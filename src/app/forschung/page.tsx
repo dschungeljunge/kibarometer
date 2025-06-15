@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import * as ss from "simple-statistics";
-import Link from "next/link";
 
 // Typ-Definitionen
 interface Item {
