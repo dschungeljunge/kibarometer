@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { supabase } from "@/utils/supabaseClient";
-import { BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, YAxis, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend } from "recharts";
+// recharts imports removed as they are not used in the current design
 import Link from "next/link";
 
 // Typdefinitionen
@@ -333,21 +333,7 @@ function AuswertungNeuContent() {
     return <main className="text-center p-8">Fehler bei der Auswertung. Bitte den Test erneut durchführen.</main>;
   }
 
-  // Daten für Radar Chart
-  const radarData = [
-    {
-      subject: 'KI-Skepsis',
-      user: userProfile.Negativ,
-      population: negativeComparison.populationAverage,
-      fullMark: 5
-    },
-    {
-      subject: 'KI-Optimismus', 
-      user: userProfile.Positiv,
-      population: positiveComparison.populationAverage,
-      fullMark: 5
-    }
-  ];
+  // radarData removed as it's not used in the current design
 
   return (
     <main className="min-h-screen">
