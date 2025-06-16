@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import * as ss from "simple-statistics";
+import Link from 'next/link';
 
 // Typ-Definitionen
 interface Item {
@@ -37,18 +38,7 @@ interface ItemStats {
     category: string;
 }
 
-interface GroupComparison {
-    variable: string;
-    groups: {
-        name: string;
-        n: number;
-        meanPositive: number;
-        meanNegative: number;
-        meanTotal: number;
-        stdDevPositive: number;
-        stdDevNegative: number;
-        stdDevTotal: number;
-    }[];
+interface AnovaResult {
     assumptions: {
         normalityTest: { testName: string; passed: boolean; details: string };
         homogeneityTest: { testName: string; passed: boolean; details: string };
@@ -60,11 +50,20 @@ interface GroupComparison {
         pValue: number | null;
         significant: boolean;
     };
-    postHoc?: {
-        comparison: string;
-        pValue: number;
-        significant: boolean;
+}
+
+interface GroupComparison {
+    variable: string;
+    groups: {
+        name: string;
+        n: number;
+        meanPositive: number;
+        meanNegative: number;
+        stdDevPositive: number;
+        stdDevNegative: number;
     }[];
+    anovaPositive: AnovaResult;
+    anovaNegative: AnovaResult;
 }
 
 interface AnalysisResult {
@@ -254,6 +253,7 @@ export default function ForschungPage() {
             const { data: itemsData, error: itemsError } = await supabase.from("items").select('id, text, category');
             const { data: answersData, error: answersError } = await supabase.from("answers").select(`
                 value, 
+                item_id,
                 response_id,
                 items ( category ),
                 responses ( id, role, school_level, age, experience, gender, consent )
@@ -269,19 +269,8 @@ export default function ForschungPage() {
             const items: Item[] = itemsData;
             const extendedAnswers: ExtendedAnswer[] = answersData as unknown as ExtendedAnswer[];
 
-            // TEMPORÄR: Alle Daten einschließen für Debugging - Filter später wieder aktivieren
-            // Filter nach Einverständnis - nur wenn consent explizit auf 'nein' steht ausschließen
-            // Bestehende Daten ohne consent Feld (null/undefined) werden eingeschlossen
-            const consentFiltered = extendedAnswers; // TEMPORÄR: Alle Daten verwenden
-            // const consentFiltered = extendedAnswers.filter(ans => {
-            //     const consent = ans.responses?.consent;
-            //     return consent !== 'nein'; // null, undefined, 'ja' werden alle eingeschlossen
-            // });
-
-            // Debug-Log
-            console.log('Original answers:', extendedAnswers.length);
-            console.log('Filtered answers:', consentFiltered.length);
-            console.log('Consent values:', extendedAnswers.map(ans => ans.responses?.consent).filter((c, i, arr) => arr.indexOf(c) === i));
+            // Filter nach Einverständnis - nur Daten verwenden, bei denen explizit für die Forschung zugestimmt wurde.
+            const consentFiltered = extendedAnswers.filter(ans => ans.responses?.consent === 'ja');
 
             const filteredExtended: ExtendedAnswer[] = consentFiltered;
             const allAnswersTyped: Answer[] = consentFiltered as unknown as Answer[];
@@ -398,23 +387,16 @@ export default function ForschungPage() {
                     { key: 'school_level', name: 'Schulstufe', values: ['Basisstufe', 'Primarschule', 'Sekundarstufe 1', 'Sekundarstufe 2', 'Hochschule', 'Universität'] }
                 ];
 
-                // Erst die Teilnehmer-Scores berechnen
+                // Erst die Teilnehmer-Scores berechnen (Mittelwerte pro Person)
                 const participantScores = Object.values(responsesByParticipant).map(p => {
-                    const scores = p.answers.map(a => {
-                        const item = items.find(i => i.id === a.item_id);
-                        if (item?.category === 'Negativ') return 6 - a.value;
-                        if (item?.category === 'Positiv') return a.value;
-                        return null;
-                    }).filter((v): v is number => v !== null);
-                    
                     const positiveScores = p.answers.map(a => {
                         const item = items.find(i => i.id === a.item_id);
                         return item?.category === 'Positiv' ? a.value : null;
                     }).filter((v): v is number => v !== null);
                     
-                    const negativeScores = p.answers.map(a => {
+                    const negativeScoresRaw = p.answers.map(a => {
                         const item = items.find(i => i.id === a.item_id);
-                        return item?.category === 'Negativ' ? (6 - a.value) : null;
+                        return item?.category === 'Negativ' ? a.value : null;
                     }).filter((v): v is number => v !== null);
                     
                     return { 
@@ -423,69 +405,69 @@ export default function ForschungPage() {
                         experience: p.experience,
                         role: p.role,
                         school_level: p.school_level,
-                        scorePositive: positiveScores,
-                        scoreNegative: negativeScores,
-                        scoreTotal: scores.length > 0 ? ss.mean(scores) : 0 
+                        // Mittelwert der positiven Items pro Person
+                        meanPositive: positiveScores.length > 0 ? ss.mean(positiveScores) : null,
+                        // Mittelwert der umgepolten negativen Items pro Person (Skepsis-Score)
+                        meanNegative: negativeScoresRaw.length > 0 ? ss.mean(negativeScoresRaw.map(v => 6 - v)) : null
                     };
                 });
 
                 for (const variable of demographicVariables) {
-                    const groups = variable.values.map(value => {
-                        const groupParticipants = participantScores.filter(p => p[variable.key as keyof typeof p] === value);
+                    // Gruppen-Statistiken berechnen
+                    const groupsData = variable.values.map(value => {
+                        const groupParticipants = participantScores.filter(p => p[variable.key as keyof typeof p] === value && p.meanPositive !== null && p.meanNegative !== null);
                         
                         if (groupParticipants.length === 0) {
-                            return {
-                                name: value,
-                                n: 0,
-                                meanPositive: 0,
-                                meanNegative: 0,
-                                meanTotal: 0,
-                                stdDevPositive: 0,
-                                stdDevNegative: 0,
-                                stdDevTotal: 0
-                            };
+                            return null;
                         }
 
-                        const positiveScores = groupParticipants.flatMap(p => p.scorePositive);
-                        const negativeScores = groupParticipants.flatMap(p => p.scoreNegative);
-                        const totalScores = groupParticipants.map(p => p.scoreTotal);
+                        const positiveScores = groupParticipants.map(p => p.meanPositive as number);
+                        const negativeScores = groupParticipants.map(p => p.meanNegative as number);
 
                         return {
                             name: value,
                             n: groupParticipants.length,
-                            meanPositive: positiveScores.length > 0 ? ss.mean(positiveScores) : 0,
-                            meanNegative: negativeScores.length > 0 ? ss.mean(negativeScores) : 0,
-                            meanTotal: totalScores.length > 0 ? ss.mean(totalScores) : 0,
+                            meanPositive: ss.mean(positiveScores),
+                            meanNegative: ss.mean(negativeScores),
                             stdDevPositive: positiveScores.length > 1 ? ss.standardDeviation(positiveScores) : 0,
-                            stdDevNegative: negativeScores.length > 1 ? ss.standardDeviation(negativeScores) : 0,
-                            stdDevTotal: totalScores.length > 1 ? ss.standardDeviation(totalScores) : 0
+                            stdDevNegative: negativeScores.length > 1 ? ss.standardDeviation(negativeScores) : 0
                         };
-                    }).filter(group => group.n > 0);
+                    }).filter((g): g is NonNullable<typeof g> => g !== null);
 
-                    // ANOVA für Gruppenvergleich
-                    const groupScores = groups.map(group => 
-                        participantScores
-                            .filter(p => p[variable.key as keyof typeof p] === group.name)
-                            .map(p => p.scoreTotal)
-                    ).filter(scores => scores.length > 0);
+                    if (groupsData.length < 2) continue;
 
-                    // Voraussetzungsprüfungen durchführen
-                    const assumptions = checkAssumptions(groupScores);
+                    // Funktion zur Durchführung der ANOVA und Voraussetzungsprüfung für eine Skala
+                    const runAnovaForScale = (scale: 'positive' | 'negative'): AnovaResult => {
+                        const groupScores = groupsData.map(group => 
+                            participantScores
+                                .filter(p => p[variable.key as keyof typeof p] === group.name)
+                                .map(p => scale === 'positive' ? p.meanPositive : p.meanNegative)
+                                .filter((s): s is number => s !== null)
+                        ).filter(scores => scores.length > 0);
+
+                        const assumptions = checkAssumptions(groupScores);
+                        const anovaResult = assumptions.overallValid 
+                            ? calculateOneWayANOVA(groupScores)
+                            : { fStatistic: null, pValue: null };
+
+                        return {
+                            assumptions,
+                            anova: {
+                                fStatistic: anovaResult.fStatistic,
+                                pValue: anovaResult.pValue,
+                                significant: anovaResult.pValue !== null && anovaResult.pValue < 0.05
+                            }
+                        };
+                    };
                     
-                    // ANOVA nur durchführen, wenn Voraussetzungen erfüllt sind
-                    const anovaResult = assumptions.overallValid 
-                        ? calculateOneWayANOVA(groupScores)
-                        : { fStatistic: null, pValue: null };
-                    
+                    const anovaPositive = runAnovaForScale('positive');
+                    const anovaNegative = runAnovaForScale('negative');
+
                     comparisons.push({
                         variable: variable.name,
-                        groups,
-                        assumptions,
-                        anova: {
-                            fStatistic: anovaResult.fStatistic,
-                            pValue: anovaResult.pValue,
-                            significant: anovaResult.pValue !== null && anovaResult.pValue < 0.05 && assumptions.overallValid
-                        }
+                        groups: groupsData,
+                        anovaPositive,
+                        anovaNegative
                     });
                 }
 
@@ -662,26 +644,25 @@ export default function ForschungPage() {
                     <p className="mb-6 text-gray-700">
                         In diesem Kapitel werden die Einstellungen zur KI systematisch nach verschiedenen demografischen 
                         Variablen verglichen. Für jede Variable werden die Mittelwerte und Standardabweichungen für die 
-                        positiven und negativen KI-Einstellungen sowie der Gesamtscore berichtet. Die statistische 
-                        Signifikanz der Gruppenunterschiede wird mittels einfaktorieller Varianzanalyse (ANOVA) geprüft.
+                        zwei unabhängigen Skalen "Optimismus" (positive Items) und "Skepsis" (negative Items) berichtet. 
+                        Die statistische Signifikanz der Gruppenunterschiede wird für jede Skala separat 
+                        mittels einfaktorieller Varianzanalyse (ANOVA) geprüft.
                     </p>
 
                     {results.groupComparisons.map((comparison, index) => (
-                        <div key={index} className="mb-8 border-l-4 border-blue-500 pl-6">
+                        <div key={index} className="mb-12 border-l-4 border-blue-500 pl-6">
                             <h4 className="text-xl font-semibold mb-4">{comparison.variable}</h4>
                             
-                            <div className="overflow-x-auto mb-4">
+                            <div className="overflow-x-auto mb-6">
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
                                         <tr>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gruppe</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">N</th>
-                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>pos</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>pos</sub> (Optimismus)</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>pos</sub></th>
-                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>neg</sub></th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>neg</sub> (Skepsis)</th>
                                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>neg</sub></th>
-                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">M<sub>total</sub></th>
-                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SD<sub>total</sub></th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
@@ -693,95 +674,87 @@ export default function ForschungPage() {
                                                 <td className="px-4 py-3 text-sm">{group.stdDevPositive.toFixed(2)}</td>
                                                 <td className="px-4 py-3 text-sm">{group.meanNegative.toFixed(2)}</td>
                                                 <td className="px-4 py-3 text-sm">{group.stdDevNegative.toFixed(2)}</td>
-                                                <td className="px-4 py-3 text-sm font-semibold">{group.meanTotal.toFixed(2)}</td>
-                                                <td className="px-4 py-3 text-sm">{group.stdDevTotal.toFixed(2)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             </div>
 
-                            {/* Voraussetzungsprüfungen */}
-                            <div className="bg-gray-50 border p-4 rounded-lg mb-4">
-                                <h5 className="font-semibold mb-3">Voraussetzungsprüfungen für ANOVA</h5>
-                                <div className="grid md:grid-cols-3 gap-4 text-sm">
-                                    <div>
-                                        <p className="font-medium">Stichprobengröße</p>
-                                        <p className="text-gray-700">
-                                            {comparison.assumptions.sampleSizeTest.passed ? 'Ausreichend' : 'Unzureichend'}
+                            {/* Statistische Auswertung für beide Skalen */}
+                            <div className="grid md:grid-cols-2 gap-8">
+                                {/* Skala: Optimismus */}
+                                <div className="bg-gray-50 p-4 rounded-lg">
+                                    <h5 className="font-semibold mb-3 text-center">Skala: Optimismus (positive Items)</h5>
+                                    
+                                    {/* Voraussetzungen */}
+                                    <div className="border p-3 rounded-lg mb-4 bg-white">
+                                        <h6 className="font-medium mb-2 text-sm">Voraussetzungsprüfung</h6>
+                                        <p className="text-xs text-gray-600 mb-2">
+                                            {comparison.anovaPositive.assumptions.sampleSizeTest.details} &middot;
+                                            Normalverteilung: {comparison.anovaPositive.assumptions.normalityTest.passed ? '✓' : '✗'} &middot;
+                                            Varianzhomogenität: {comparison.anovaPositive.assumptions.homogeneityTest.passed ? '✓' : '✗'}
                                         </p>
-                                        <p className="text-gray-600 text-xs">{comparison.assumptions.sampleSizeTest.details}</p>
+                                        <p className={`text-sm font-medium ${comparison.anovaPositive.assumptions.overallValid ? 'text-green-700' : 'text-orange-700'}`}>
+                                            {comparison.anovaPositive.assumptions.overallValid 
+                                                ? 'ANOVA ist zulässig' 
+                                                : 'ANOVA nur deskriptiv interpretieren'}
+                                        </p>
                                     </div>
-                                    <div>
-                                        <p className="font-medium">Normalverteilung</p>
-                                        <p className="text-gray-700">
-                                            {comparison.assumptions.normalityTest.passed ? 'Gegeben' : 'Verletzt'}
-                                        </p>
-                                        <p className="text-gray-600 text-xs">{comparison.assumptions.normalityTest.details}</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-medium">Varianzenhomogenität</p>
-                                        <p className="text-gray-700">
-                                            {comparison.assumptions.homogeneityTest.passed ? 'Gegeben' : 'Verletzt'}
-                                        </p>
-                                        <p className="text-gray-600 text-xs">{comparison.assumptions.homogeneityTest.details}</p>
+
+                                    {/* ANOVA Ergebnis */}
+                                    <div className="text-center">
+                                        {comparison.anovaPositive.assumptions.overallValid ? (
+                                            <>
+                                                <p className="text-sm">F-Statistik: {comparison.anovaPositive.anova.fStatistic?.toFixed(3) ?? 'N/A'}</p>
+                                                <p className={`font-bold text-lg ${comparison.anovaPositive.anova.significant ? 'text-blue-600' : 'text-gray-700'}`}>
+                                                    {comparison.anovaPositive.anova.significant 
+                                                        ? 'Signifikanter Unterschied' 
+                                                        : 'Kein signifikanter Unterschied'}
+                                                </p>
+                                                <p className="text-sm">(p = {comparison.anovaPositive.anova.pValue?.toFixed(3) ?? 'N/A'})</p>
+                                            </>
+                                        ) : (
+                                            <p className="text-gray-600 text-sm">ANOVA nicht durchgeführt (Voraussetzungen verletzt)</p>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="mt-3 pt-3 border-t border-gray-300">
-                                    <p className="font-medium text-gray-700">
-                                        Gesamtbewertung: {comparison.assumptions.overallValid 
-                                            ? 'ANOVA ist zulässig - alle Voraussetzungen erfüllt' 
-                                            : 'ANOVA-Voraussetzungen nicht vollständig erfüllt'
-                                        }
-                                    </p>
+
+                                {/* Skala: Skepsis */}
+                                <div className="bg-gray-50 p-4 rounded-lg">
+                                    <h5 className="font-semibold mb-3 text-center">Skala: Skepsis (negative Items)</h5>
+                                    
+                                    {/* Voraussetzungen */}
+                                    <div className="border p-3 rounded-lg mb-4 bg-white">
+                                        <h6 className="font-medium mb-2 text-sm">Voraussetzungsprüfung</h6>
+                                        <p className="text-xs text-gray-600 mb-2">
+                                            {comparison.anovaNegative.assumptions.sampleSizeTest.details} &middot;
+                                            Normalverteilung: {comparison.anovaNegative.assumptions.normalityTest.passed ? '✓' : '✗'} &middot;
+                                            Varianzhomogenität: {comparison.anovaNegative.assumptions.homogeneityTest.passed ? '✓' : '✗'}
+                                        </p>
+                                        <p className={`text-sm font-medium ${comparison.anovaNegative.assumptions.overallValid ? 'text-green-700' : 'text-orange-700'}`}>
+                                            {comparison.anovaNegative.assumptions.overallValid 
+                                                ? 'ANOVA ist zulässig' 
+                                                : 'ANOVA nur deskriptiv interpretieren'}
+                                        </p>
+                                    </div>
+
+                                    {/* ANOVA Ergebnis */}
+                                    <div className="text-center">
+                                        {comparison.anovaNegative.assumptions.overallValid ? (
+                                            <>
+                                                <p className="text-sm">F-Statistik: {comparison.anovaNegative.anova.fStatistic?.toFixed(3) ?? 'N/A'}</p>
+                                                <p className={`font-bold text-lg ${comparison.anovaNegative.anova.significant ? 'text-blue-600' : 'text-gray-700'}`}>
+                                                    {comparison.anovaNegative.anova.significant 
+                                                        ? 'Signifikanter Unterschied' 
+                                                        : 'Kein signifikanter Unterschied'}
+                                                </p>
+                                                <p className="text-sm">(p = {comparison.anovaNegative.anova.pValue?.toFixed(3) ?? 'N/A'})</p>
+                                            </>
+                                        ) : (
+                                            <p className="text-gray-600 text-sm">ANOVA nicht durchgeführt (Voraussetzungen verletzt)</p>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h5 className="font-semibold mb-2">Statistische Auswertung (ANOVA)</h5>
-                                {comparison.assumptions.overallValid ? (
-                                    <div className="grid md:grid-cols-2 gap-4">
-                                        <div>
-                                            <p><strong>F-Statistik:</strong> {comparison.anova.fStatistic?.toFixed(3) ?? 'N/A'}</p>
-                                            <p><strong>p-Wert:</strong> {comparison.anova.pValue?.toFixed(3) ?? 'N/A'}</p>
-                                        </div>
-                                        <div>
-                                            <p className="font-medium text-gray-700">
-                                                {comparison.anova.significant 
-                                                    ? 'Statistisch signifikante Unterschiede (p < 0.05)' 
-                                                    : 'Keine statistisch signifikanten Unterschiede (p ≥ 0.05)'
-                                                }
-                                            </p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="text-center text-gray-600">
-                                        <p>ANOVA wurde nicht durchgeführt</p>
-                                        <p className="text-sm">Voraussetzungen für parametrische Tests nicht erfüllt</p>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-4 text-sm text-gray-600">
-                                <p><strong>Interpretation:</strong> {
-                                    !comparison.assumptions.overallValid
-                                        ? `Die statistische Auswertung ist aufgrund verletzter Testvoraussetzungen nicht verlässlich. 
-                                           Deskriptiv zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
-                                               group.meanTotal > max.meanTotal ? group : max
-                                           ).name}" die höchste mittlere Bewertung (M = ${comparison.groups.reduce((max, group) => 
-                                               group.meanTotal > max.meanTotal ? group : max
-                                           ).meanTotal.toFixed(2)}).`
-                                        : comparison.anova.significant
-                                            ? `Die Gruppen unterscheiden sich statistisch signifikant in ihren KI-Einstellungen. 
-                                               Die höchste positive Einstellung zeigt die Gruppe "${comparison.groups.reduce((max, group) => 
-                                                   group.meanTotal > max.meanTotal ? group : max
-                                               ).name}" (M = ${comparison.groups.reduce((max, group) => 
-                                                   group.meanTotal > max.meanTotal ? group : max
-                                               ).meanTotal.toFixed(2)}).`
-                                            : `Die Gruppen unterscheiden sich nicht statistisch signifikant in ihren KI-Einstellungen. 
-                                               Die Mittelwerte liegen zwischen ${Math.min(...comparison.groups.map(g => g.meanTotal)).toFixed(2)} 
-                                               und ${Math.max(...comparison.groups.map(g => g.meanTotal)).toFixed(2)}.`
-                                }</p>
                             </div>
                         </div>
                     ))}
@@ -789,42 +762,53 @@ export default function ForschungPage() {
                     <div className="mt-8 bg-blue-50 p-6 rounded-lg">
                         <h4 className="text-lg font-semibold mb-3 text-blue-800">Zusammenfassung der Gruppenvergleiche</h4>
                         
-                        {/* Testvalidität */}
-                        <div className="mb-4 p-3 bg-white rounded border">
-                            <p className="font-medium mb-2">Testvalidität (Voraussetzungsprüfungen):</p>
-                            <div className="grid md:grid-cols-2 gap-2 text-sm">
-                                <div>
-                                    <p><strong>Zulässige Tests:</strong></p>
-                                    <ul className="list-disc list-inside ml-4">
-                                        {results.groupComparisons
-                                            .filter(comp => comp.assumptions.overallValid)
-                                            .map((comp, idx) => (
-                                                <li key={idx} className="text-gray-700">{comp.variable}</li>
-                                            ))
-                                        }
-                                        {results.groupComparisons.filter(comp => comp.assumptions.overallValid).length === 0 && (
-                                            <li className="text-gray-600">Keine Tests erfüllen alle Voraussetzungen</li>
-                                        )}
-                                    </ul>
-                                </div>
-                                <div>
-                                    <p><strong>Eingeschränkte Tests:</strong></p>
-                                    <ul className="list-disc list-inside ml-4">
-                                        {results.groupComparisons
-                                            .filter(comp => !comp.assumptions.overallValid)
-                                            .map((comp, idx) => (
-                                                <li key={idx} className="text-gray-700">{comp.variable}</li>
-                                            ))
-                                        }
-                                        {results.groupComparisons.filter(comp => !comp.assumptions.overallValid).length === 0 && (
-                                            <li className="text-gray-600">Alle Tests erfüllen die Voraussetzungen</li>
-                                        )}
-                                    </ul>
-                                </div>
+                        <div className="grid md:grid-cols-2 gap-8">
+                            {/* Signifikante Ergebnisse */}
+                            <div className="bg-white rounded border p-4">
+                                <p className="font-medium mb-2">Statistisch signifikante Unterschiede (p &lt; 0.05)</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                    {results.groupComparisons.map(comp => (
+                                        <>
+                                            {comp.anovaPositive.anova.significant && comp.anovaPositive.assumptions.overallValid && (
+                                                <li key={`${comp.variable}-pos`}>{comp.variable} (Optimismus)</li>
+                                            )}
+                                            {comp.anovaNegative.anova.significant && comp.anovaNegative.assumptions.overallValid && (
+                                                <li key={`${comp.variable}-neg`}>{comp.variable} (Skepsis)</li>
+                                            )}
+                                        </>
+                                    )).flat().filter(Boolean).length === 0 ? (
+                                        <li className="text-gray-600">Keine signifikanten Unterschiede gefunden</li>
+                                    ) : null}
+                                </ul>
+                            </div>
+
+                             {/* Deskriptive Tendenzen */}
+                             <div className="bg-white rounded border p-4">
+                                <p className="font-medium mb-2">Deskriptive Tendenzen (nicht signifikant oder Voraussetzungen verletzt)</p>
+                                <ul className="list-disc list-inside ml-4 text-sm">
+                                {results.groupComparisons.map(comp => {
+                                    const highestPositive = comp.groups.reduce((max, group) => group.meanPositive > max.meanPositive ? group : max);
+                                    const highestNegative = comp.groups.reduce((max, group) => group.meanNegative > max.meanNegative ? group : max);
+                                    return (
+                                        <li key={`${comp.variable}-desc`}>
+                                            <strong className="font-semibold">{comp.variable}:</strong> Höchster Optimismus bei "{highestPositive.name}", höchste Skepsis bei "{highestNegative.name}".
+                                        </li>
+                                    )
+                                }).flat().length === 0 ? (
+                                    <li className="text-gray-600">Keine Vergleiche durchgeführt</li>
+                                ) : null}
+                                </ul>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <div className="text-center my-12">
+                    <Link href="/forschung/zusammenhaenge" className="inline-block bg-blue-600 text-white font-bold py-3 px-8 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-all duration-300 ease-in-out shadow-lg transform hover:scale-105">
+                        Zur Analyse der Zusammenhänge (Korrelationen)
+                    </Link>
+                </div>
+
             </main>
         </div>
         </>

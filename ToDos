@@ -1,35 +1,42 @@
-Optimieren: 
-- [x] Test starten mit Frage nach Rolle, dann Schulstufe, dann Berufserfahrung, dann Geschlecht, dann Alter
-  → Reihenfolge der demografischen Fragen im Code angepasst
-- [x] Frage hinzufügen: "Ich fühle mich kompetent beim Einsatz von KI im eigenen Unterricht."
-  → Diese Frage wird als letztes Item im Test angezeigt
-- [x] Progressbar ist oben an Fenster, sieht man kaum. besser platzieren
-  → Progressbar ist jetzt größer, sticky und mit Abstand zur Navigation
-- [x] nachdem man bei einer Frage eine Zahl gewählt hat, bleibt die Auswahl auch bei der nächsten Frage, bis man wegklickt. 
-  → Nach Klick wird der Button disabled, damit die Auswahl nicht "klebt" (Achtung: Siehe neuen Bug unten)
-- [ ] die Grafiken sind nicht optimal. Das liegt auch daran, dass das Ergebnis des Testes nicht ganz einfach einzuordnen ist. 
-- [x] Eingabemöglichkeiten durch Dropdown ersetzen:
-# Auswahl für Schulstufe
-Basisstufe
-Primarschule
-Sekundarstufe 1
-Sekundarstufe 2
-Hochschule
-Universität
-
-# Auswahl für Rolle
-Lehrperson
-Dozent:in
-Schulleiter:in
-Wissenschaftler:in 
-sonstiges
-
-# Überlegungen zur Testauswertung
-- Wenn man als Lehrperson diesen Test gemacht hat, dann möchte man sich vermutlich mit der gesamtpopulation vergleichen. Einordnung des eigenen Test ist daher sinnvoll. 
-- Spannend sind vermutlich fragen, wie man im Vergleich zu anderen Personen steht aus der gleichen Altersgruppe oder Erfahrungsgruppe. 
-- Auch eine Rangliste der verschiedenen Schulstufen könnte spannend sein. welche Stufe ist am optimistischen? Welche eher am deutlichsten kritisch? 
-
-## Negative und Positive Haltung gegenüber KI
-Der Test weist positive und negative kodierte Items auf. Dabei sind die positiven und negativen Einstellungen gegenüber der KI spannend. Es ist gut möglich, dass jemand ausgeprägte positive, wie auch negative Einstellungen gegenüber der KI hat. Vermutlich könnte eine Matrix gebildet werden. tiefe skepsis, tiefe Euphorie. hohe skepsis, tiefe Euphorie. tiefe Skepsis, hohe Euphorie. Hohe skepsis, hohe euphorie. 
+Kompetenzlevel einbeziehen in statistische Auswertungen
 
 
+
+http://localhost:3000/auswertung?response_id=4bce5bc0-05f6-4901-ad84-52ee024afe95
+
+---
+
+### Zukünftiges Feature: Detaillierte Korrelationsanalyse
+
+**Vorhaben:**
+Ein neues Unterkapitel bzw. eine neue Unterseite zur statistischen Auswertung hinzufügen, das die Zusammenhänge (Korrelationen) zwischen demografischen Merkmalen und den KI-Einstellungsskalen (Optimismus & Skepsis) analysiert und visualisiert.
+
+**Ziel:**
+Herausfinden, ob Merkmale wie Alter oder Berufserfahrung einen statistisch signifikanten Einfluss auf die optimistische oder skeptische Haltung gegenüber KI haben.
+
+**Geplante technische Umsetzung:**
+
+1.  **Neue Unterseite:** Eine neue Seite unter der Route `/forschung/zusammenhaenge` erstellen.
+    - **Datei:** `src/app/forschung/zusammenhaenge/page.tsx`
+    - **Begründung:** Auslagerung auf eine eigene Seite, um die Ladezeit der Haupt-Forschungsseite nicht zu beeinträchtigen.
+
+2.  **Datenanalyse auf der neuen Seite:**
+    - Die notwendigen Daten (Antworten und demografische Angaben) von Supabase laden. Wichtig: Nur Daten von Teilnehmenden verwenden, die ihre Zustimmung (`consent === 'ja'`) gegeben haben.
+    - Für jeden Teilnehmer die individuellen Scores für "Optimismus" und "Skepsis" berechnen.
+    - Demografische Kategoriemerkmale (z.B. Altersgruppen wie "25-34") in numerische Werte umwandeln, um damit korrelieren zu können (z.B. durch den Mittelwert der Spanne: 29.5).
+    - Mittels Pearson-Korrelation die Zusammenhänge zwischen folgenden Variablenpaaren berechnen:
+        - Optimismus vs. Skepsis
+        - Alter vs. Optimismus
+        - Alter vs. Skepsis
+        - Berufserfahrung vs. Optimismus
+        - Berufserfahrung vs. Skepsis
+
+3.  **Visualisierung:**
+    - Die Ergebnisse für jede Korrelation übersichtlich in "Statistik-Karten" darstellen, die den Korrelationskoeffizienten (r), die Signifikanz (p-Wert) und die Stichprobengröße (N) anzeigen.
+    - Zusätzlich die wichtigsten Zusammenhänge als Streudiagramme (Scatter Plots) visualisieren, um die Verteilung der Datenpunkte sichtbar zu machen (z.B. mit `react-chartjs-2`).
+
+4.  **Navigation:**
+    - Auf der Haupt-Forschungsseite (`/forschung`) einen gut sichtbaren Button oder Link platzieren, der zur neuen Korrelationsanalyse-Seite führt.
+
+**Hinweis zu technischen Problemen:**
+Während der Umsetzung gab es wiederholt Probleme beim automatischen Erstellen der Datei `src/app/forschung/zusammenhaenge/page.tsx`. Sollte dieses Problem weiterhin bestehen, wäre ein **alternativer Plan**, die gesamte Funktionalität in einem ausklappbaren "Akkordeon"-Element direkt auf der Haupt-Forschungsseite zu implementieren. Die Berechnungen würden dabei erst nach dem Klick auf das Element ausgelöst, um die initiale Ladezeit nicht zu belasten.
