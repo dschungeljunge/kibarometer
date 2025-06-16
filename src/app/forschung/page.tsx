@@ -790,7 +790,8 @@ export default function ForschungPage() {
                                     const highestNegative = comp.groups.reduce((max, group) => group.meanNegative > max.meanNegative ? group : max);
                                     return (
                                         <li key={`${comp.variable}-desc`}>
-                                            <strong className="font-semibold">{comp.variable}:</strong> Höchster Optimismus bei &quot;{highestPositive.name}&quot;, höchste Skepsis bei &quot;{highestNegative.name}&quot;.
+                                            <strong className="font-semibold">{comp.variable}:</strong>
+                                            <span> Optimismus: {highestPositive.name} / Skepsis: {highestNegative.name}</span>
                                         </li>
                                     )
                                 }).flat().length === 0 ? (
