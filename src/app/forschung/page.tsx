@@ -477,7 +477,6 @@ export default function ForschungPage() {
             const groupComparisons = calculateGroupComparisons();
 
             // Demografie-Berechnungen - aus gefilterten Daten (nur Teilnehmer mit gültigen Antworten)
-            const uniqueResponseIds = new Set(filteredExtended.map(ans => ans.response_id));
             const filteredResponses = Object.values(responsesByParticipant);
             const n = filteredResponses.length;
             
@@ -791,7 +790,7 @@ export default function ForschungPage() {
                                     const highestNegative = comp.groups.reduce((max, group) => group.meanNegative > max.meanNegative ? group : max);
                                     return (
                                         <li key={`${comp.variable}-desc`}>
-                                            <strong className="font-semibold">{comp.variable}:</strong> Höchster Optimismus bei "{highestPositive.name}", höchste Skepsis bei "{highestNegative.name}".
+                                            <strong className="font-semibold">{comp.variable}:</strong> Höchster Optimismus bei &quot;{highestPositive.name}&quot;, höchste Skepsis bei &quot;{highestNegative.name}&quot;.
                                         </li>
                                     )
                                 }).flat().length === 0 ? (

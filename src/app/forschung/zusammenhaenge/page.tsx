@@ -105,6 +105,7 @@ export default function ZusammenhaengePage() {
             }
             
             const items: Item[] = itemsData || [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const extendedAnswers: ExtendedAnswer[] = (answersData as any[]).filter(a => a.responses?.consent === 'ja');
 
             // 2. Scores pro Teilnehmer berechnen
