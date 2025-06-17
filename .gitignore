@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# User-specific files
+ToDos
+items.txt
+responseIDs.md
+kibarometer.md
+
+responseID.node_modules
