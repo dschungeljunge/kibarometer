@@ -643,7 +643,7 @@ export default function ForschungPage() {
                     <p className="mb-6 text-gray-700">
                         In diesem Kapitel werden die Einstellungen zur KI systematisch nach verschiedenen demografischen 
                         Variablen verglichen. Für jede Variable werden die Mittelwerte und Standardabweichungen für die 
-                        zwei unabhängigen Skalen "Optimismus" (positive Items) und "Skepsis" (negative Items) berichtet. 
+                        zwei unabhängigen Skalen &quot;Optimismus&quot; (positive Items) und &quot;Skepsis&quot; (negative Items) berichtet. 
                         Die statistische Signifikanz der Gruppenunterschiede wird für jede Skala separat 
                         mittels einfaktorieller Varianzanalyse (ANOVA) geprüft.
                     </p>
