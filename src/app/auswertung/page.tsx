@@ -164,8 +164,7 @@ function AuswertungContent() {
         .select(`
           value, 
           response_id,
-          items ( category ),
-          responses ( role, school_level, age, experience, gender, consent )
+          items ( category )
         `);
 
       if (answersError) {
@@ -184,6 +183,26 @@ function AuswertungContent() {
         setLoading(false);
         return;
       }
+
+      // Lade alle demografischen Informationen separat aus der responses-Tabelle
+      const { data: responsesData, error: responsesError } = await supabase
+        .from("responses")
+        .select("id, role, school_level, age, experience, gender, consent");
+      if (responsesError) {
+        console.error("Fehler beim Laden der Demografie-Daten:", responsesError);
+      }
+
+      const responseMap: Record<string, {
+        role?: string;
+        school_level?: string;
+        age?: string;
+        experience?: string;
+        gender?: string;
+        consent?: string;
+      }> = {};
+      (responsesData ?? []).forEach(r => {
+        responseMap[r.id.toString()] = r;
+      });
 
       const userAnswers: Answer[] = userAnswersData as unknown as Answer[];
       const extendedAnswers: ExtendedAnswer[] = allAnswersWithDemo as unknown as ExtendedAnswer[];
@@ -219,11 +238,12 @@ function AuswertungContent() {
           allNegativeScores.push(profile.Negativ);
           allPositiveScores.push(profile.Positiv);
           
+          const demo = responseMap[respId] || {};
           allProfiles[respId] = {
             ...profile,
-            age: answers[0]?.responses?.age,
-            role: answers[0]?.responses?.role,
-            experience: answers[0]?.responses?.experience
+            age: demo.age || 'Unbekannt',
+            role: demo.role || 'Unbekannt',
+            experience: demo.experience || 'Unbekannt'
           };
         }
       });
@@ -231,7 +251,7 @@ function AuswertungContent() {
       const negComp = calculateDemographicComparison(calculatedUserProfile.Negativ, allNegativeScores);
       const posComp = calculateDemographicComparison(calculatedUserProfile.Positiv, allPositiveScores);
       
-      const userDemographics = extendedAnswers.find(a => a.response_id.toString() === responseId)?.responses;
+      const userDemographics = responseMap[responseId] || null;
       const demographics: UserDemographics = {
         role: userDemographics?.role || 'Unbekannt',
         schoolLevel: userDemographics?.school_level || 'Unbekannt',
