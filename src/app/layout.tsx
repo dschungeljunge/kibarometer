@@ -45,7 +45,7 @@ export default function RootLayout({
         {/* Footer mit weniger prominenten Links */}
         <footer className="w-full bg-gray-100 py-4">
           <div className="max-w-4xl mx-auto px-4 text-center flex justify-center gap-6 text-sm text-neutral-600">
-            <Link href="/forschung" className="hover:text-primary-600 underline">Forschung</Link>
+            <Link href="/forschung" className="hover:text-primary-600 underline">Statistik</Link>
             <Link href="/impressum" className="hover:text-primary-600 underline">Impressum</Link>
             <Link href="/datenschutz" className="hover:text-primary-600 underline">Datenschutz</Link>
             <a href="https://github.com/dschungeljunge/kibarometer" target="_blank" rel="noopener noreferrer" className="hover:text-primary-600 underline">GitHub</a>
