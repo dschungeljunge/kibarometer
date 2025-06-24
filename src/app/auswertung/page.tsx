@@ -135,6 +135,34 @@ const getInterpretationText = (
   }
 };
 
+// Hilfsfunktion: Gendergerechter KI-Typ-Titel
+const getGenderedTitle = (baseTitle: string, gender: string): string => {
+  const femaleMap: Record<string, string> = {
+    "Der Komplexe": "Die Komplexe",
+    "Der Optimist": "Die Optimistin",
+    "Der Skeptiker": "Die Skeptikerin",
+    "Der Unentschlossene": "Die Unentschlossene",
+    "Der Ausgewogene": "Die Ausgewogene",
+    "Der Hoffnungsvolle": "Die Hoffnungsvolle",
+    "Der Vorsichtige": "Die Vorsichtige"
+  };
+
+  const neutralMap: Record<string, string> = {
+    "Der Komplexe": "Der/Die Komplexe",
+    "Der Optimist": "Der/Die Optimist:in",
+    "Der Skeptiker": "Der/Die Skeptiker:in",
+    "Der Unentschlossene": "Der/Die Unentschlossene",
+    "Der Ausgewogene": "Der/Die Ausgewogene",
+    "Der Hoffnungsvolle": "Der/Die Hoffnungsvolle",
+    "Der Vorsichtige": "Der/Die Vorsichtige"
+  };
+
+  const g = (gender || "").toLowerCase();
+  if (g === "weiblich") return femaleMap[baseTitle] || baseTitle;
+  if (g === "männlich") return baseTitle;
+  return neutralMap[baseTitle] || baseTitle;
+};
+
 function AuswertungContent() {
   const searchParams = useSearchParams();
   const responseId = searchParams.get("response_id");
@@ -395,7 +423,7 @@ function AuswertungContent() {
                insights.kiType === "Der Hoffnungsvolle" ? "🌅" :
                insights.kiType === "Der Vorsichtige" ? "🛡️" : "🎯"}
             </div>
-            <h3 className="text-4xl font-bold mb-6 text-blue-700">{insights.kiType}</h3>
+            <h3 className="text-4xl font-bold mb-6 text-blue-700">{getGenderedTitle(insights.kiType, userDemo.gender)}</h3>
             <p className="text-xl text-blue-700 leading-relaxed max-w-3xl mx-auto">
               {insights.kiType === "Der Komplexe" ? "Du erkennst sowohl große Chancen als auch ernste Risiken in der KI. Diese differenzierte Sichtweise zeigt, dass du das Thema wirklich durchdacht hast." :
                insights.kiType === "Der Optimist" ? "Du siehst vor allem die positiven Möglichkeiten der KI und bist bereit, neue Wege zu erkunden. Dein Vertrauen in die Technologie ist bemerkenswert." :
