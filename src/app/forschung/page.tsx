@@ -249,16 +249,55 @@ export default function ForschungPage() {
 
     useEffect(() => {
         const runAnalysis = async () => {
-            // 1. Alle benötigten Daten laden
+            // 1. DEBUGGING: Lade alle Daten separat und zähle sie
+            console.log("=== DEBUGGING: Lade Rohdaten ===");
+            
             const { data: itemsData, error: itemsError } = await supabase.from("items").select('id, text, category');
-            const { data: answersData, error: answersError } = await supabase.from("answers").select(`
-                value, 
-                item_id,
-                response_id,
-                items ( category ),
-                responses ( id, role, school_level, age, experience, gender, consent )
-            `);
-            const { data: responsesData, error: responsesError } = await supabase.from("responses").select('age, experience, gender, role, school_level');
+            console.log("Items geladen:", itemsData?.length || 0);
+            
+            // Lade ALLE Antworten
+            const allAnswersPages = [];
+            let page = 0;
+            let hasMore = true;
+            
+            while (hasMore) {
+                const { data: pageData, error } = await supabase
+                    .from("answers")
+                    .select('*')
+                    .range(page * 1000, (page + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allAnswersPages.push(...pageData);
+                    page++;
+                    hasMore = pageData.length === 1000; // Wenn weniger als 1000, sind wir fertig
+                } else {
+                    hasMore = false;
+                }
+            }
+            
+            const answersData = allAnswersPages;
+            const answersError = allAnswersPages.length === 0 ? new Error("Keine Antworten geladen") : null;
+            console.log("ALLE Answers geladen:", answersData?.length || 0);
+            
+            const { data: responsesData, error: responsesError } = await supabase.from("responses").select('*').limit(200);
+            console.log("ALLE Responses geladen:", responsesData?.length || 0);
+            
+            // Zähle eindeutige response_ids in answers
+            const uniqueResponseIds = new Set(answersData?.map(a => a.response_id) || []);
+            console.log("Eindeutige response_ids in answers:", uniqueResponseIds.size);
+            
+            // Zähle response_ids die auch in responses Tabelle existieren
+            const responseIds = new Set(responsesData?.map(r => r.id) || []);
+            const matchingIds = [...uniqueResponseIds].filter(id => responseIds.has(id));
+            console.log("response_ids die in beiden Tabellen existieren:", matchingIds.length);
+            
+            // LÖSUNG: Verwende ALLE 88 Responses für Demographie, nur die 48 mit Antworten für Items
+            console.log("=== LÖSUNG: Nutze alle", responsesData?.length, "Responses für Demographie ===");
 
             if (itemsError || answersError || responsesError || !itemsData || !answersData || !responsesData) {
                 console.error("Daten-Ladefehler:", itemsError || answersError || responsesError);
@@ -266,26 +305,42 @@ export default function ForschungPage() {
                 return;
             }
 
+            // Map für demografische Daten erstellen
+            const responseMap: Record<string, {
+                role?: string;
+                school_level?: string;
+                age?: string;
+                experience?: string;
+                gender?: string;
+            }> = {};
+            (responsesData ?? []).forEach((r: any) => {
+                if (r && r.id) {
+                    responseMap[r.id.toString()] = r;
+                }
+            });
+
             const items: Item[] = itemsData;
-            const extendedAnswers: ExtendedAnswer[] = answersData as unknown as ExtendedAnswer[];
-
-            // Filter nach Einverständnis - nur Daten verwenden, bei denen explizit für die Forschung zugestimmt wurde.
-            const consentFiltered = extendedAnswers.filter(ans => ans.responses?.consent === 'ja');
-
-            const filteredExtended: ExtendedAnswer[] = consentFiltered;
-            const allAnswersTyped: Answer[] = consentFiltered as unknown as Answer[];
+            // Keine Consent-Filterung mehr: alle Antworten werden ausgewertet
 
             // 2. Antworten pro Teilnehmer gruppieren
-            const responsesByParticipant = filteredExtended.reduce((acc, answer) => {
+            const responsesByParticipant = (answersData as any[]).reduce((acc: Record<string, { 
+                gender: string; 
+                age: string; 
+                experience: string; 
+                role: string; 
+                school_level: string; 
+                answers: { item_id: number; value: number }[] 
+            }>, answer: any) => {
                 const responseId = String(answer.response_id);
                 if (!responseId) return acc;
                 if (!acc[responseId]) {
+                    const demo = responseMap[responseId] || {};
                     acc[responseId] = { 
-                        gender: answer.responses?.gender || 'unbekannt', 
-                        age: answer.responses?.age || 'unbekannt',
-                        experience: answer.responses?.experience || 'unbekannt',
-                        role: answer.responses?.role || 'unbekannt',
-                        school_level: answer.responses?.school_level || 'unbekannt',
+                        gender: demo.gender || 'unbekannt', 
+                        age: demo.age || 'unbekannt',
+                        experience: demo.experience || 'unbekannt',
+                        role: demo.role || 'unbekannt',
+                        school_level: demo.school_level || 'unbekannt',
                         answers: [] 
                     };
                 }
@@ -305,7 +360,7 @@ export default function ForschungPage() {
                 return items
                     .filter(item => item.category !== 'Kontrolle')
                     .map(item => {
-                        const itemAnswers = allAnswersTyped.filter(a => a.item_id === item.id).map(a => a.value);
+                        const itemAnswers = (answersData as any[]).filter((a: any) => a.item_id === item.id).map((a: any) => a.value);
                         if (itemAnswers.length === 0) return { 
                             text: item.text, 
                             mean: 'N/A', 

@@ -33,8 +33,8 @@ interface Item {
 }
 
 interface ParticipantScores {
-    meanPositive: number;
-    meanNegative: number; // Skepsis-Score
+    meanPositive: number | null;
+    meanNegative: number | null; // Skepsis-Score
     age: number;
     experience: number;
 }
@@ -94,9 +94,14 @@ export default function ZusammenhaengePage() {
             const { data: answersData, error: answersError } = await supabase.from("answers").select(`
                 response_id,
                 item_id,
-                value,
-                responses ( age, experience, consent )
-            `);
+                value
+            `).range(0, 2000); // Explizit höheres Limit
+
+            // Lade alle demografischen Informationen separat aus der responses-Tabelle
+            const { data: responsesData, error: responsesError } = await supabase
+                .from("responses")
+                .select("id, age, experience, consent")
+                .range(0, 200);
 
             if (itemsError || answersError || !answersData) {
                 console.error("Daten-Ladefehler:", itemsError || answersError);
@@ -104,40 +109,57 @@ export default function ZusammenhaengePage() {
                 return;
             }
             
+            if (responsesError) {
+                console.error("Fehler beim Laden der Demografie-Daten:", responsesError);
+            }
+
+            console.log("Responses Data:", responsesData);
+
+            const responseMap: Record<string, {
+                age?: string;
+                experience?: string;
+                consent?: string;
+            }> = {};
+            (responsesData ?? []).forEach((r: any) => {
+                if (r && r.id) {
+                    responseMap[r.id.toString()] = r;
+                }
+            });
+            
             const items: Item[] = itemsData || [];
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const extendedAnswers: ExtendedAnswer[] = (answersData as any[]).filter(a => a.responses?.consent === 'ja');
+            // Keine Consent-Filterung mehr: alle Antworten werden ausgewertet
 
             // 2. Scores pro Teilnehmer berechnen
-            const responsesByParticipant = extendedAnswers.reduce((acc, answer) => {
+            const responsesByParticipant = (answersData as any[]).reduce((acc: Record<string, { answers: { item_id: number, value: number }[], age: string, experience: string }>, answer: any) => {
                 const id = String(answer.response_id);
                 if (!acc[id]) {
+                    const demo = responseMap[id] || {};
                     acc[id] = {
                         answers: [],
-                        age: answer.responses?.age || 'unbekannt',
-                        experience: answer.responses?.experience || 'unbekannt'
+                        age: demo.age || 'unbekannt',
+                        experience: demo.experience || 'unbekannt'
                     };
                 }
                 acc[id].answers.push({ item_id: answer.item_id, value: answer.value });
                 return acc;
             }, {} as Record<string, { answers: { item_id: number, value: number }[], age: string, experience: string }>);
 
-            const participantScores: ParticipantScores[] = Object.values(responsesByParticipant).map(p => {
+            const participantScores: ParticipantScores[] = Object.values(responsesByParticipant).map((p: { answers: { item_id: number, value: number }[], age: string, experience: string }) => {
                 const positiveScores = p.answers
-                    .map(a => items.find(i => i.id === a.item_id)?.category === 'Positiv' ? a.value : null)
-                    .filter((v): v is number => v !== null);
+                    .map((a: any) => items.find(i => i.id === a.item_id)?.category === 'Positiv' ? a.value : null)
+                    .filter((v: any): v is number => v !== null);
                 
                 const negativeScoresRaw = p.answers
-                    .map(a => items.find(i => i.id === a.item_id)?.category === 'Negativ' ? a.value : null)
-                    .filter((v): v is number => v !== null);
+                    .map((a: any) => items.find(i => i.id === a.item_id)?.category === 'Negativ' ? a.value : null)
+                    .filter((v: any): v is number => v !== null);
 
                 return {
-                    meanPositive: positiveScores.length > 0 ? ss.mean(positiveScores) : 0,
-                    meanNegative: negativeScoresRaw.length > 0 ? ss.mean(negativeScoresRaw.map(v => 6 - v)) : 0, // Skepsis umpolen
+                    meanPositive: positiveScores.length > 0 ? ss.mean(positiveScores) : null,
+                    meanNegative: negativeScoresRaw.length > 0 ? ss.mean(negativeScoresRaw.map((v: number) => 6 - v)) : null, // Skepsis umpolen
                     age: categoryToNumber(p.age, 'age'),
                     experience: categoryToNumber(p.experience, 'experience')
                 };
-            }).filter(p => p.age > 0 && p.experience > 0 && p.meanPositive > 0 && p.meanNegative > 0);
+            }).filter(p => p.age > 0 && p.experience > 0 && p.meanPositive !== null && p.meanNegative !== null);
 
             if (participantScores.length < 10) { // Mindestanzahl für sinnvolle Korrelationen
                 setLoading(false);
@@ -159,17 +181,17 @@ export default function ZusammenhaengePage() {
             };
             
             const analysisData: AnalysisResults = {
-                optimismVsSkepticism: calculateCorrelation(participantScores.map(p => p.meanPositive), participantScores.map(p => p.meanNegative)),
-                ageVsOptimism: calculateCorrelation(participantScores.map(p => p.age), participantScores.map(p => p.meanPositive)),
-                ageVsSkepticism: calculateCorrelation(participantScores.map(p => p.age), participantScores.map(p => p.meanNegative)),
-                experienceVsOptimism: calculateCorrelation(participantScores.map(p => p.experience), participantScores.map(p => p.meanPositive)),
-                experienceVsSkepticism: calculateCorrelation(participantScores.map(p => p.experience), participantScores.map(p => p.meanNegative)),
+                optimismVsSkepticism: calculateCorrelation(participantScores.map(p => p.meanPositive as number), participantScores.map(p => p.meanNegative as number)),
+                ageVsOptimism: calculateCorrelation(participantScores.map(p => p.age), participantScores.map(p => p.meanPositive as number)),
+                ageVsSkepticism: calculateCorrelation(participantScores.map(p => p.age), participantScores.map(p => p.meanNegative as number)),
+                experienceVsOptimism: calculateCorrelation(participantScores.map(p => p.experience), participantScores.map(p => p.meanPositive as number)),
+                experienceVsSkepticism: calculateCorrelation(participantScores.map(p => p.experience), participantScores.map(p => p.meanNegative as number)),
                 scatterData: {
-                    optimismSkepticism: participantScores.map(p => ({ x: p.meanPositive, y: p.meanNegative })),
-                    ageOptimism: participantScores.map(p => ({ x: p.age, y: p.meanPositive })),
-                    ageSkepticism: participantScores.map(p => ({ x: p.age, y: p.meanNegative })),
-                    experienceOptimism: participantScores.map(p => ({ x: p.experience, y: p.meanPositive })),
-                    experienceSkepticism: participantScores.map(p => ({ x: p.experience, y: p.meanNegative })),
+                    optimismSkepticism: participantScores.map(p => ({ x: p.meanPositive as number, y: p.meanNegative as number })),
+                    ageOptimism: participantScores.map(p => ({ x: p.age, y: p.meanPositive as number })),
+                    ageSkepticism: participantScores.map(p => ({ x: p.age, y: p.meanNegative as number })),
+                    experienceOptimism: participantScores.map(p => ({ x: p.experience, y: p.meanPositive as number })),
+                    experienceSkepticism: participantScores.map(p => ({ x: p.experience, y: p.meanNegative as number })),
                 }
             };
             

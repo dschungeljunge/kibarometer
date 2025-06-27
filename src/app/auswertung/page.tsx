@@ -182,23 +182,54 @@ function AuswertungContent() {
 
   useEffect(() => {
     async function fetchData() {
-      if (!responseId) {
-        setLoading(false);
-        return;
+      setLoading(true);
+      
+      // Lade alle Antworten mit Pagination
+      const allAnswersPages = [];
+      let page = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from("answers")
+          .select(`
+            value, 
+            response_id,
+            items ( category )
+          `)
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (pageError) {
+          console.error("Fehler beim Laden der Antworten:", pageError);
+          setLoading(false);
+          return;
+        }
+        
+        allAnswersPages.push(...pageData);
+        hasMore = pageData.length === 1000;
+        page++;
       }
 
-      const { data: allAnswersWithDemo, error: answersError } = await supabase
-        .from("answers")
-        .select(`
-          value, 
-          response_id,
-          items ( category )
-        `);
-
-      if (answersError) {
-        console.error("Fehler beim Laden der Daten:", answersError);
-        setLoading(false);
-        return;
+      // Lade alle Responses mit Pagination
+      const allResponsesPages = [];
+      page = 0;
+      hasMore = true;
+      
+      while (hasMore) {
+        const { data: pageData, error: pageError } = await supabase
+          .from("responses")
+          .select("id, role, school_level, age, experience, gender, consent")
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        
+        if (pageError) {
+          console.error("Fehler beim Laden der Responses:", pageError);
+          setLoading(false);
+          return;
+        }
+        
+        allResponsesPages.push(...pageData);
+        hasMore = pageData.length === 1000;
+        page++;
       }
       
       const { data: userAnswersData, error: userAnswersError } = await supabase
@@ -212,13 +243,7 @@ function AuswertungContent() {
         return;
       }
 
-      // Lade alle demografischen Informationen separat aus der responses-Tabelle
-      const { data: responsesData, error: responsesError } = await supabase
-        .from("responses")
-        .select("id, role, school_level, age, experience, gender, consent");
-      if (responsesError) {
-        console.error("Fehler beim Laden der Demografie-Daten:", responsesError);
-      }
+      console.log(`Auswertung: ${allAnswersPages.length} Antworten und ${allResponsesPages.length} Responses geladen`);
 
       const responseMap: Record<string, {
         role?: string;
@@ -228,12 +253,14 @@ function AuswertungContent() {
         gender?: string;
         consent?: string;
       }> = {};
-      (responsesData ?? []).forEach(r => {
-        responseMap[r.id.toString()] = r;
+      allResponsesPages.forEach(r => {
+        if (r.id) {
+          responseMap[r.id.toString()] = r;
+        }
       });
 
       const userAnswers: Answer[] = userAnswersData as unknown as Answer[];
-      const extendedAnswers: ExtendedAnswer[] = allAnswersWithDemo as unknown as ExtendedAnswer[];
+      const extendedAnswers: ExtendedAnswer[] = allAnswersPages as unknown as ExtendedAnswer[];
       
       const calculatedUserProfile = calculateProfile(userAnswers);
       
@@ -279,7 +306,7 @@ function AuswertungContent() {
       const negComp = calculateDemographicComparison(calculatedUserProfile.Negativ, allNegativeScores);
       const posComp = calculateDemographicComparison(calculatedUserProfile.Positiv, allPositiveScores);
       
-      const userDemographics = responseMap[responseId] || null;
+      const userDemographics = responseId ? responseMap[responseId] || null : null;
       const demographics: UserDemographics = {
         role: userDemographics?.role || 'Unbekannt',
         schoolLevel: userDemographics?.school_level || 'Unbekannt',
@@ -482,35 +509,83 @@ function AuswertungContent() {
               </div>
             </div>
 
-            {/* Rankings für Skepsis */}
+            {/* Skepsis-Vergleiche */}
             <div className="mt-10">
-              <h4 className="text-lg font-semibold mb-6 text-center text-blue-200">Deine Skepsis-Rankings</h4>
+              <h4 className="text-lg font-semibold mb-6 text-center text-blue-200">Wie skeptisch bist du im Vergleich?</h4>
               
               <div className="grid md:grid-cols-3 gap-6 mb-8">
-                {/* Altersgruppen-Ranking */}
+                {/* Altersgruppen-Vergleich */}
                 <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-300 mb-2">#{insights.ageSkepticismRank}</div>
-                    <div className="text-blue-200 text-sm mb-1">von {insights.ageSkepticismTotal}</div>
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-200 mb-2">
+                      {Math.round(((insights.ageSkepticismRank - 1) / Math.max(insights.ageSkepticismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-100 text-sm mb-1">
+                      Skeptischer als deine Altersgruppe
+                    </div>
                     <div className="text-blue-400 text-xs">Generation {userDemo.age}</div>
                   </div>
-                </div>
-
-                {/* Berufsgruppen-Ranking */}
-                <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-300 mb-2">#{insights.roleSkepticismRank}</div>
-                    <div className="text-blue-200 text-sm mb-1">von {insights.roleSkepticismTotal}</div>
-                    <div className="text-blue-400 text-xs">{userDemo.role}</div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.ageSkepticismRank - 1) / Math.max(insights.ageSkepticismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-400 mt-1">
+                    <span>Vertrauensvoll</span>
+                    <span>Skeptisch</span>
                   </div>
                 </div>
 
-                {/* Erfahrungs-Ranking */}
+                {/* Berufsgruppen-Vergleich */}
                 <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-300 mb-2">#{insights.experienceSkepticismRank}</div>
-                    <div className="text-blue-200 text-sm mb-1">von {insights.experienceSkepticismTotal}</div>
-                    <div className="text-blue-400 text-xs">{userDemo.experience} Jahre</div>
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-200 mb-2">
+                      {Math.round(((insights.roleSkepticismRank - 1) / Math.max(insights.roleSkepticismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-100 text-sm mb-1">
+                      Skeptischer als {userDemo.role}
+                    </div>
+                    <div className="text-blue-400 text-xs">{userDemo.role}</div>
+                  </div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.roleSkepticismRank - 1) / Math.max(insights.roleSkepticismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-400 mt-1">
+                    <span>Vertrauensvoll</span>
+                    <span>Skeptisch</span>
+                  </div>
+                </div>
+
+                {/* Erfahrungs-Vergleich */}
+                <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-200 mb-2">
+                      {Math.round(((insights.experienceSkepticismRank - 1) / Math.max(insights.experienceSkepticismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-100 text-sm mb-1">
+                      Skeptischer als andere mit {userDemo.experience} Jahren
+                    </div>
+                    <div className="text-blue-400 text-xs">{userDemo.experience} Jahre Erfahrung</div>
+                  </div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.experienceSkepticismRank - 1) / Math.max(insights.experienceSkepticismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-400 mt-1">
+                    <span>Vertrauensvoll</span>
+                    <span>Skeptisch</span>
                   </div>
                 </div>
               </div>
@@ -599,35 +674,83 @@ function AuswertungContent() {
               </div>
             </div>
 
-            {/* Rankings für Optimismus */}
+            {/* Optimismus-Vergleiche */}
             <div className="mt-10">
-              <h4 className="text-lg font-semibold mb-6 text-center text-blue-700">Deine Optimismus-Rankings</h4>
+              <h4 className="text-lg font-semibold mb-6 text-center text-blue-700">Wie optimistisch bist du im Vergleich?</h4>
               
               <div className="grid md:grid-cols-3 gap-6 mb-8">
-                {/* Altersgruppen-Ranking */}
+                {/* Altersgruppen-Vergleich */}
                 <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">#{insights.ageOptimismRank}</div>
-                    <div className="text-blue-700 text-sm mb-1">von {insights.ageOptimismTotal}</div>
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {Math.round(((insights.ageOptimismRank - 1) / Math.max(insights.ageOptimismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-700 text-sm mb-1">
+                      Optimistischer als deine Altersgruppe
+                    </div>
                     <div className="text-blue-500 text-xs">Generation {userDemo.age}</div>
                   </div>
-                </div>
-
-                {/* Berufsgruppen-Ranking */}
-                <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">#{insights.roleOptimismRank}</div>
-                    <div className="text-blue-700 text-sm mb-1">von {insights.roleOptimismTotal}</div>
-                    <div className="text-blue-500 text-xs">{userDemo.role}</div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.ageOptimismRank - 1) / Math.max(insights.ageOptimismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-500 mt-1">
+                    <span>Vorsichtig</span>
+                    <span>Optimistisch</span>
                   </div>
                 </div>
 
-                {/* Erfahrungs-Ranking */}
+                {/* Berufsgruppen-Vergleich */}
                 <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">#{insights.experienceOptimismRank}</div>
-                    <div className="text-blue-700 text-sm mb-1">von {insights.experienceOptimismTotal}</div>
-                    <div className="text-blue-500 text-xs">{userDemo.experience} Jahre</div>
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {Math.round(((insights.roleOptimismRank - 1) / Math.max(insights.roleOptimismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-700 text-sm mb-1">
+                      Optimistischer als {userDemo.role}
+                    </div>
+                    <div className="text-blue-500 text-xs">{userDemo.role}</div>
+                  </div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.roleOptimismRank - 1) / Math.max(insights.roleOptimismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-500 mt-1">
+                    <span>Vorsichtig</span>
+                    <span>Optimistisch</span>
+                  </div>
+                </div>
+
+                {/* Erfahrungs-Vergleich */}
+                <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
+                  <div className="text-center mb-4">
+                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                      {Math.round(((insights.experienceOptimismRank - 1) / Math.max(insights.experienceOptimismTotal - 1, 1)) * 100)}%
+                    </div>
+                    <div className="text-blue-700 text-sm mb-1">
+                      Optimistischer als andere mit {userDemo.experience} Jahren
+                    </div>
+                    <div className="text-blue-500 text-xs">{userDemo.experience} Jahre Erfahrung</div>
+                  </div>
+                  
+                  {/* Visueller Balken */}
+                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
+                      style={{ width: `${Math.round(((insights.experienceOptimismRank - 1) / Math.max(insights.experienceOptimismTotal - 1, 1)) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-500 mt-1">
+                    <span>Vorsichtig</span>
+                    <span>Optimistisch</span>
                   </div>
                 </div>
               </div>
