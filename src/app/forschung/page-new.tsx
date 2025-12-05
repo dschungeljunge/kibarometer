@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
+import { AnswerRow, ResponseRow } from "@/types/database";
 import * as ss from "simple-statistics";
 
 interface Demographics {
@@ -31,17 +32,63 @@ export default function NewForschungPage() {
         const runAnalysis = async () => {
             console.log("=== NEUE FORSCHUNGSANALYSE ===");
             
-            // 1. ALLE Responses laden (auch unvollständige)
-            const { data: allResponses, error: responsesError } = await supabase
-                .from("responses")
-                .select('*');
+            // 1. ALLE Responses laden mit Pagination
+            const allResponsesPages: ResponseRow[] = [];
+            let responsePage = 0;
+            let hasMoreResponses = true;
             
-            // 2. ALLE Answers laden
-            const { data: allAnswers, error: answersError } = await supabase
-                .from("answers")
-                .select('*');
+            while (hasMoreResponses) {
+                const { data: pageData, error } = await supabase
+                    .from("responses")
+                    .select('*')
+                    .range(responsePage * 1000, (responsePage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Responses:", error);
+                    break;
+                }
                 
-            // 3. ALLE Items laden
+                if (pageData && pageData.length > 0) {
+                    allResponsesPages.push(...pageData);
+                    responsePage++;
+                    hasMoreResponses = pageData.length === 1000;
+                } else {
+                    hasMoreResponses = false;
+                }
+            }
+            
+            const allResponses = allResponsesPages;
+            const responsesError = allResponsesPages.length === 0 && responsePage === 0 ? new Error("Keine Responses") : null;
+            
+            // 2. ALLE Answers laden mit Pagination
+            const allAnswersPages: AnswerRow[] = [];
+            let answerPage = 0;
+            let hasMoreAnswers = true;
+            
+            while (hasMoreAnswers) {
+                const { data: pageData, error } = await supabase
+                    .from("answers")
+                    .select('*')
+                    .range(answerPage * 1000, (answerPage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Answers:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allAnswersPages.push(...pageData);
+                    answerPage++;
+                    hasMoreAnswers = pageData.length === 1000;
+                } else {
+                    hasMoreAnswers = false;
+                }
+            }
+            
+            const allAnswers = allAnswersPages;
+            const answersError = allAnswersPages.length === 0 && answerPage === 0 ? new Error("Keine Answers") : null;
+                
+            // 3. ALLE Items laden (typischerweise <100, kein Pagination nötig)
             const { data: allItems, error: itemsError } = await supabase
                 .from("items")
                 .select('*');
@@ -74,7 +121,7 @@ export default function NewForschungPage() {
                 experience?: string;
                 role?: string;
                 school_level?: string;
-                answers: any[];
+                answers: AnswerRow[];
             }
             
             const completeParticipants: ParticipantWithAnswers[] = [];

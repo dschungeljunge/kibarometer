@@ -12,6 +12,7 @@ export default function Navigation() {
   const navLinks = [
     { href: "/test", label: "Test" },
     { href: "/auswertung", label: "KI Puls" },
+    { href: "/herausforderungen", label: "Herausforderungen" },
   ];
 
   // Blendet die Navigation auf der Test-Seite aus

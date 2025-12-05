@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { Database } from '@/types/database';
 
 // Supabase Configuration aus Environment Variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,4 +13,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey); 
+// Starker, schema-basierter Supabase-Client
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey); 

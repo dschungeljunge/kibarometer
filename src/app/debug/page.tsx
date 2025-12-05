@@ -1,9 +1,29 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
+import { AnswerRow, ResponseRow } from "@/types/database";
+
+interface DebugStats {
+  totalAnswers: number;
+  totalResponses: number;
+  totalItems: number;
+  expectedAnswers: number;
+  uniqueAnswerResponses: number;
+  uniqueResponseIds: number;
+  intersection: number;
+  orphanAnswers: number;
+  orphanResponses: number;
+  completeParticipants: number;
+  incompleteParticipants: number;
+  responsesWithoutAnswers: number;
+  allAnswers: AnswerRow[];
+  allResponses: ResponseRow[];
+  answersPerParticipant: [string, number][];
+  latestResponsesWithoutAnswers: ResponseRow[];
+}
 
 export default function DebugPage() {
-    const [stats, setStats] = useState<any>(null);
+    const [stats, setStats] = useState<DebugStats | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -11,25 +31,70 @@ export default function DebugPage() {
             console.log("=== COMPLETE DATABASE DEBUG ===");
             
             // 1. Erstmal nur ZÄHLEN ohne Daten zu laden
-            const { count: answerCount, error: countError } = await supabase
+            const { count: answerCount } = await supabase
                 .from("answers")
                 .select('*', { count: 'exact', head: true });
             
             console.log("TOTAL ANSWERS IN DB:", answerCount);
             
-            // 2. Dann Daten laden mit höherem Limit
-            const { data: allAnswers, error: answersError } = await supabase
-                .from("answers")
-                .select('*')
-                .limit(2000);
+            // 2. Dann Daten laden mit Pagination
+            const allAnswersPages = [];
+            let answerPage = 0;
+            let hasMoreAnswers = true;
+            
+            while (hasMoreAnswers) {
+                const { data: pageData, error } = await supabase
+                    .from("answers")
+                    .select('*')
+                    .range(answerPage * 1000, (answerPage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Answers:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allAnswersPages.push(...pageData);
+                    answerPage++;
+                    hasMoreAnswers = pageData.length === 1000;
+                } else {
+                    hasMoreAnswers = false;
+                }
+            }
+            
+            const allAnswers = allAnswersPages;
+            const answersError = allAnswersPages.length === 0 && answerPage === 0 ? new Error("Keine Answers") : null;
             
             console.log("ANSWERS GELADEN:", allAnswers?.length || 0, "von", answerCount || "unknown", "total");
             
-            // 2. Alle Responses zählen  
-            const { data: allResponses, error: responsesError, count: responseCount } = await supabase
-                .from("responses")
-                .select('*', { count: 'exact' })
-                .limit(200); // Mehr als genug für responses
+            // 2. Alle Responses zählen und laden (mit Pagination falls nötig)
+            const allResponsesPages = [];
+            let responsePage = 0;
+            let hasMoreResponses = true;
+            
+            while (hasMoreResponses) {
+                const { data: pageData, error } = await supabase
+                    .from("responses")
+                    .select('*')
+                    .range(responsePage * 1000, (responsePage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Responses:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allResponsesPages.push(...pageData);
+                    responsePage++;
+                    hasMoreResponses = pageData.length === 1000;
+                } else {
+                    hasMoreResponses = false;
+                }
+            }
+            
+            const allResponses = allResponsesPages;
+            const responsesError = allResponsesPages.length === 0 && responsePage === 0 ? new Error("Keine Responses") : null;
+            const responseCount = allResponses.length;
                 
             console.log("ALLE RESPONSES:", allResponses?.length || 0, "von", responseCount || "unknown", "total");
             
@@ -81,8 +146,8 @@ export default function DebugPage() {
             console.log("ERWARTETE ANSWERS PRO TEILNEHMER:", expectedAnswers);
             
             // 11. Teilnehmer mit vollständigen/unvollständigen Antworten
-            const completeParticipants = [...answersPerParticipant.entries()].filter(([id, count]) => count >= expectedAnswers);
-            const incompleteParticipants = [...answersPerParticipant.entries()].filter(([id, count]) => count < expectedAnswers);
+            const completeParticipants = [...answersPerParticipant.entries()].filter(([, count]) => count >= expectedAnswers);
+            const incompleteParticipants = [...answersPerParticipant.entries()].filter(([, count]) => count < expectedAnswers);
             
             console.log("VOLLSTÄNDIGE TEILNEHMER:", completeParticipants.length);
             console.log("UNVOLLSTÄNDIGE TEILNEHMER:", incompleteParticipants.length);
@@ -125,6 +190,7 @@ export default function DebugPage() {
     }, []);
 
     if (loading) return <div className="p-8">Lade Debug-Informationen...</div>;
+    if (!stats) return <div className="p-8">Keine Statistiken verfügbar.</div>;
 
     return (
         <div className="p-8 max-w-6xl mx-auto">
@@ -184,13 +250,13 @@ export default function DebugPage() {
             <div className="bg-white p-6 rounded-lg shadow mb-8">
                 <h2 className="text-xl font-bold mb-4 text-red-600">🚨 Neueste verlorene Tests</h2>
                 <div className="space-y-2">
-                    {stats.latestResponsesWithoutAnswers.map((resp: any, index: number) => (
+                    {stats.latestResponsesWithoutAnswers.map((resp: ResponseRow, index: number) => (
                         <div key={index} className="bg-red-50 p-3 rounded border-l-4 border-red-400">
                             <div className="text-sm">
                                 <strong>ID:</strong> {resp.id.substring(0, 8)}...
                             </div>
                             <div className="text-sm text-gray-600">
-                                <strong>Datum:</strong> {new Date(resp.created_at).toLocaleString('de-DE')}
+                                <strong>Datum:</strong> {resp.created_at ? new Date(resp.created_at).toLocaleString('de-DE') : 'unbekannt'}
                             </div>
                             <div className="text-sm text-gray-600">
                                 <strong>Profil:</strong> {resp.role}, {resp.age}, {resp.gender}

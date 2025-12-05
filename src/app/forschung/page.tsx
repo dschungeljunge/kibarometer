@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
+import { AnswerRow, ResponseRow } from "@/types/database";
 import * as ss from "simple-statistics";
 import Link from 'next/link';
 
@@ -9,25 +10,6 @@ interface Item {
     id: number;
     text: string;
     category: 'Positiv' | 'Negativ' | 'Kontrolle';
-}
-
-interface Answer {
-    value: number;
-    item_id: number;
-    responses: { id: string; gender: string; age: string; experience: string; role: string; school_level: string; consent?: string } | null;
-}
-
-interface ExtendedAnswer extends Answer {
-    response_id: number;
-    responses: {
-        id: string;
-        gender: string;
-        age: string;
-        experience: string;
-        role: string;
-        school_level: string;
-        consent?: string;
-    } | null;
 }
 
 interface ItemStats {
@@ -284,7 +266,33 @@ export default function ForschungPage() {
             const answersError = allAnswersPages.length === 0 ? new Error("Keine Antworten geladen") : null;
             console.log("ALLE Answers geladen:", answersData?.length || 0);
             
-            const { data: responsesData, error: responsesError } = await supabase.from("responses").select('*').limit(200);
+            // Lade ALLE Responses mit Pagination (wie bei Answers)
+            const allResponsesPages = [];
+            let responsePage = 0;
+            let hasMoreResponses = true;
+            
+            while (hasMoreResponses) {
+                const { data: pageData, error } = await supabase
+                    .from("responses")
+                    .select('*')
+                    .range(responsePage * 1000, (responsePage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Responses:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allResponsesPages.push(...pageData);
+                    responsePage++;
+                    hasMoreResponses = pageData.length === 1000;
+                } else {
+                    hasMoreResponses = false;
+                }
+            }
+            
+            const responsesData = allResponsesPages;
+            const responsesError = allResponsesPages.length === 0 && responsePage === 0 ? new Error("Keine Responses geladen") : null;
             console.log("ALLE Responses geladen:", responsesData?.length || 0);
             
             // Zähle eindeutige response_ids in answers
@@ -313,7 +321,7 @@ export default function ForschungPage() {
                 experience?: string;
                 gender?: string;
             }> = {};
-            (responsesData ?? []).forEach((r: any) => {
+            (responsesData ?? []).forEach((r: ResponseRow) => {
                 if (r && r.id) {
                     responseMap[r.id.toString()] = r;
                 }
@@ -322,15 +330,17 @@ export default function ForschungPage() {
             const items: Item[] = itemsData;
             // Keine Consent-Filterung mehr: alle Antworten werden ausgewertet
 
+            type AnswerSimple = { item_id: number; value: number };
+
             // 2. Antworten pro Teilnehmer gruppieren
-            const responsesByParticipant = (answersData as any[]).reduce((acc: Record<string, { 
+            const responsesByParticipant = (answersData as AnswerRow[]).reduce((acc: Record<string, { 
                 gender: string; 
                 age: string; 
                 experience: string; 
                 role: string; 
                 school_level: string; 
-                answers: { item_id: number; value: number }[] 
-            }>, answer: any) => {
+                answers: AnswerSimple[] 
+            }>, answer) => {
                 const responseId = String(answer.response_id);
                 if (!responseId) return acc;
                 if (!acc[responseId]) {
@@ -352,7 +362,7 @@ export default function ForschungPage() {
                 experience: string; 
                 role: string; 
                 school_level: string; 
-                answers: { item_id: number; value: number }[] 
+                answers: AnswerSimple[] 
             }>);
 
             // 3. Deskriptive Statistiken mit Item-Total-Korrelation
@@ -360,7 +370,7 @@ export default function ForschungPage() {
                 return items
                     .filter(item => item.category !== 'Kontrolle')
                     .map(item => {
-                        const itemAnswers = (answersData as any[]).filter((a: any) => a.item_id === item.id).map((a: any) => a.value);
+                        const itemAnswers = (answersData as AnswerRow[]).filter((a) => a.item_id === item.id).map((a) => a.value);
                         if (itemAnswers.length === 0) return { 
                             text: item.text, 
                             mean: 'N/A', 

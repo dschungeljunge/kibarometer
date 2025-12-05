@@ -5,6 +5,9 @@ import { Suspense } from "react";
 import { supabase } from "@/utils/supabaseClient";
 import Link from "next/link";
 
+// Anzahl der Histogramm-Bins für Verteilungsdarstellungen
+const BIN_COUNT = 20;
+
 // Typdefinitionen
 interface Answer {
   value: number;
@@ -62,6 +65,18 @@ interface InsightData {
   consistencyScore: number;
   extremeValues: string[];
   uniqueCombination: boolean;
+  ageSkepticismHist: number[];
+  roleSkepticismHist: number[];
+  experienceSkepticismHist: number[];
+  ageOptimismHist: number[];
+  roleOptimismHist: number[];
+  experienceOptimismHist: number[];
+  ageSkepticismScores: number[];
+  roleSkepticismScores: number[];
+  experienceSkepticismScores: number[];
+  ageOptimismScores: number[];
+  roleOptimismScores: number[];
+  experienceOptimismScores: number[];
 }
 
 // Hilfsfunktion zur Profilberechnung
@@ -161,6 +176,51 @@ const getGenderedTitle = (baseTitle: string, gender: string): string => {
   if (g === "weiblich") return femaleMap[baseTitle] || baseTitle;
   if (g === "männlich") return baseTitle;
   return neutralMap[baseTitle] || baseTitle;
+};
+
+interface ScatterProps { scores: number[]; userScore: number; userColorClass?: string; othersClass?: string }
+interface DotPoint { xPct: number; stack: number; isUser: boolean; id: number | string }
+const DistributionScatter = ({ scores, userScore, userColorClass, othersClass = 'bg-blue-500' }: ScatterProps) => {
+  const dotSize = 10; // px - größer für bessere Lesbarkeit
+  // Gruppiere nach gerundetem Prozentwert (1% Schritte)
+  const stackMap: Record<number, number> = {};
+  const dots: DotPoint[] = scores.map((s, idx) => {
+    const xPct = ((s - 1) / 4) * 100; // 0-100
+    const key = Math.round(xPct);
+    const stack = stackMap[key] || 0;
+    stackMap[key] = stack + 1;
+    return { xPct, stack, isUser: false, id: idx };
+  });
+
+  // User Punkt zuletzt, damit er oben liegt
+  const userXPct = ((userScore - 1) / 4) * 100;
+  const userKey = Math.round(userXPct);
+  const userStack = (stackMap[userKey] || 0);
+  const userDot: DotPoint = { xPct: userXPct, stack: userStack, isUser: true, id: 'user' };
+  dots.push(userDot);
+
+  return (
+    <div className="relative w-full h-[100px]" >
+      {dots.map(dot => (
+        <div
+          key={dot.id}
+          className={`${dot.isUser ? (userColorClass || 'bg-blue-200 border-2 border-white') : othersClass} rounded-full absolute`}
+          style={{
+            width: dotSize,
+            height: dotSize,
+            left: `calc(${dot.xPct}% - ${dotSize / 2}px)`,
+            bottom: `${dot.stack * (dotSize + 4)}px`,
+            zIndex: dot.isUser ? 10 : 1,
+          }}
+        />
+      ))}
+      {/* Achse */}
+      <div className="absolute bottom-0 left-0 w-full h-px bg-blue-400"></div>
+      <div className="absolute -bottom-4 left-0 w-full flex justify-between text-[12px] text-blue-300 select-none">
+        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+      </div>
+    </div>
+  );
 };
 
 function AuswertungContent() {
@@ -370,6 +430,22 @@ function AuswertungContent() {
         
         const uniqueCombination = rarityScore >= 85;
         
+        const buildHist = (scores: number[]): number[] => {
+          const bins = Array(BIN_COUNT).fill(0);
+          scores.forEach(s => {
+            const idx = Math.floor(((s - 1) / 4) * BIN_COUNT);
+            bins[Math.max(0, Math.min(BIN_COUNT - 1, idx))]++;
+          });
+          return bins;
+        };
+
+        const ageSkepticismHist = buildHist(ageSkepticismScores);
+        const ageOptimismHist = buildHist(ageOptimismScores);
+        const roleSkepticismHist = buildHist(roleSkepticismScores);
+        const roleOptimismHist = buildHist(roleOptimismScores);
+        const experienceSkepticismHist = buildHist(experienceSkepticismScores);
+        const experienceOptimismHist = buildHist(experienceOptimismScores);
+        
         return {
           kiType,
           rarityScore,
@@ -387,7 +463,19 @@ function AuswertungContent() {
           experienceSkepticismTotal: experienceSkepticismScores.length,
           consistencyScore,
           extremeValues,
-          uniqueCombination
+          uniqueCombination,
+          ageSkepticismHist,
+          roleSkepticismHist,
+          experienceSkepticismHist,
+          ageOptimismHist,
+          roleOptimismHist,
+          experienceOptimismHist,
+          ageSkepticismScores,
+          roleSkepticismScores,
+          experienceSkepticismScores,
+          ageOptimismScores,
+          roleOptimismScores,
+          experienceOptimismScores
         };
       };
       
@@ -417,6 +505,25 @@ function AuswertungContent() {
   if (!userProfile || !negativeComparison || !positiveComparison || !userDemo || !insights) {
     return <main className="text-center p-8">Fehler bei der Auswertung. Bitte den Test erneut durchführen.</main>;
   }
+
+  // Hilfsfunktion für Prozentberechnung (Position in sortierter Liste)
+  const calcPercent = (rank: number, total: number) => {
+    const skeptPct = Math.round(((rank - 1) / Math.max(total - 1, 1)) * 100);
+    return { skeptPct, trustPct: 100 - skeptPct };
+  };
+
+  // Prozentwerte für Skepsis-Vergleichskarten
+  const agePerc = calcPercent(insights.ageSkepticismRank, insights.ageSkepticismTotal);
+  const rolePerc = calcPercent(insights.roleSkepticismRank, insights.roleSkepticismTotal);
+  const expPerc = calcPercent(insights.experienceSkepticismRank, insights.experienceSkepticismTotal);
+
+  // Optimismus-Percents für Punkteskala
+  const ageOptPerc = calcPercent(insights.ageOptimismRank, insights.ageOptimismTotal);
+  const roleOptPerc = calcPercent(insights.roleOptimismRank, insights.roleOptimismTotal);
+  const expOptPerc = calcPercent(insights.experienceOptimismRank, insights.experienceOptimismTotal);
+
+  const userNegScore = userProfile.Negativ;
+  const userPosScore = userProfile.Positiv;
 
   return (
     <main className="min-h-screen">
@@ -511,127 +618,78 @@ function AuswertungContent() {
 
             {/* Skepsis-Vergleiche */}
             <div className="mt-10">
-              <h4 className="text-lg font-semibold mb-6 text-center text-blue-200">Wie skeptisch bist du im Vergleich?</h4>
+              <h4 className="text-lg font-semibold mb-2 text-center text-blue-200">Wie skeptisch bist du im Vergleich?</h4>
+              <p className="text-center text-sm text-blue-300 mb-6">Jeder blaue Punkt repräsentiert eine Antwort aus deiner Vergleichsgruppe, dein eigener Wert ist als weißer Punkt hervorgehoben.</p>
               
+              <div className="bg-blue-700 rounded-lg p-6 mb-8">
+                <div className="relative">
+                  <div className="flex justify-between text-xs text-blue-300 mb-2">
+                    <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                  </div>
+                  <div className="relative h-12 bg-blue-600 rounded-full">
+                    <div className="absolute inset-0 bg-gradient-to-r from-green-400 via-yellow-400 to-red-400 rounded-full opacity-60" />
+                    <div className="absolute top-0 w-1 h-12 bg-blue-200 rounded" style={{ left: `${((negativeComparison.populationAverage - 1) / 4) * 100}%` }} />
+                    <div className="absolute -top-7 text-xs text-blue-300 transform -translate-x-1/2" style={{ left: `${((negativeComparison.populationAverage - 1) / 4) * 100}%` }}>⌀ {negativeComparison.populationAverage.toFixed(1)}</div>
+                    <div className="absolute top-0 w-3 h-12 bg-blue-300 rounded border-2 border-white" style={{ left: `${((userProfile.Negativ - 1) / 4) * 100 - 1.5}%` }} />
+                    <div className="absolute -bottom-8 text-sm text-blue-200 font-bold transform -translate-x-1/2" style={{ left: `${((userProfile.Negativ - 1) / 4) * 100}%` }}>Du: {userProfile.Negativ.toFixed(1)}</div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-300 mt-10"><span>Wenig Bedenken</span><span>Mittlere Bedenken</span><span>Große Bedenken</span></div>
+                </div>
+              </div>
+
               <div className="grid md:grid-cols-3 gap-6 mb-8">
                 {/* Altersgruppen-Vergleich */}
                 <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-200 mb-2">
-                      {Math.round(((insights.ageSkepticismRank - 1) / Math.max(insights.ageSkepticismTotal - 1, 1)) * 100)}%
+                    <div
+                      className="text-xl font-bold text-blue-200 mb-2"
+                      title={`Nur ${agePerc.skeptPct}% deiner Altersgruppe sind skeptischer als du`}
+                    >
+                      Altersgruppe
                     </div>
                     <div className="text-blue-100 text-sm mb-1">
-                      Skeptischer als deine Altersgruppe
+                      Geringere Skepsis als {agePerc.trustPct}% deiner Altersgruppe
                     </div>
                     <div className="text-blue-400 text-xs">Generation {userDemo.age}</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.ageSkepticismRank - 1) / Math.max(insights.ageSkepticismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-400 mt-1">
-                    <span>Vertrauensvoll</span>
-                    <span>Skeptisch</span>
-                  </div>
+                  <DistributionScatter scores={insights.ageSkepticismScores} userScore={userNegScore} />
                 </div>
 
                 {/* Berufsgruppen-Vergleich */}
                 <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-200 mb-2">
-                      {Math.round(((insights.roleSkepticismRank - 1) / Math.max(insights.roleSkepticismTotal - 1, 1)) * 100)}%
+                    <div
+                      className="text-xl font-bold text-blue-200 mb-2"
+                      title={`Nur ${rolePerc.skeptPct}% der Personen in der Berufsgruppe ${userDemo.role} sind skeptischer als du`}
+                    >
+                      Beruf
                     </div>
                     <div className="text-blue-100 text-sm mb-1">
-                      Skeptischer als {userDemo.role}
+                      Geringere Skepsis als {rolePerc.trustPct}% von {userDemo.role}
                     </div>
                     <div className="text-blue-400 text-xs">{userDemo.role}</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.roleSkepticismRank - 1) / Math.max(insights.roleSkepticismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-400 mt-1">
-                    <span>Vertrauensvoll</span>
-                    <span>Skeptisch</span>
-                  </div>
+                  <DistributionScatter scores={insights.roleSkepticismScores} userScore={userNegScore} />
                 </div>
 
                 {/* Erfahrungs-Vergleich */}
                 <div className="bg-blue-700 rounded-lg p-6 border border-blue-600">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-200 mb-2">
-                      {Math.round(((insights.experienceSkepticismRank - 1) / Math.max(insights.experienceSkepticismTotal - 1, 1)) * 100)}%
+                    <div
+                      className="text-xl font-bold text-blue-200 mb-2"
+                      title={`Nur ${expPerc.skeptPct}% der Personen mit ${userDemo.experience} Jahren Erfahrung sind skeptischer als du`}
+                    >
+                      Erfahrung
                     </div>
                     <div className="text-blue-100 text-sm mb-1">
-                      Skeptischer als andere mit {userDemo.experience} Jahren
+                      Geringere Skepsis als {expPerc.trustPct}% mit {userDemo.experience} Jahren
                     </div>
                     <div className="text-blue-400 text-xs">{userDemo.experience} Jahre Erfahrung</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-800 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-400 to-blue-200 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.experienceSkepticismRank - 1) / Math.max(insights.experienceSkepticismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-400 mt-1">
-                    <span>Vertrauensvoll</span>
-                    <span>Skeptisch</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Visualisierung */}
-              <div className="bg-blue-700 rounded-lg p-6">
-                <div className="relative">
-                  <div className="flex justify-between text-xs text-blue-300 mb-2">
-                    <span>1</span>
-                    <span>2</span>
-                    <span>3</span>
-                    <span>4</span>
-                    <span>5</span>
-                  </div>
-                  
-                  <div className="relative h-8 bg-blue-600 rounded-full">
-                    <div className="absolute inset-0 bg-gradient-to-r from-green-400 via-yellow-400 to-red-400 rounded-full opacity-60"></div>
-                    
-                    <div 
-                      className="absolute top-0 w-1 h-8 bg-blue-200 rounded"
-                      style={{ left: `${((negativeComparison.populationAverage - 1) / 4) * 100}%` }}
-                    ></div>
-                    <div 
-                      className="absolute -top-6 text-xs text-blue-300 transform -translate-x-1/2"
-                      style={{ left: `${((negativeComparison.populationAverage - 1) / 4) * 100}%` }}
-                    >
-                      ⌀ {negativeComparison.populationAverage.toFixed(1)}
-                    </div>
-                    
-                    <div 
-                      className="absolute top-0 w-3 h-8 bg-blue-300 rounded border-2 border-white"
-                      style={{ left: `${((userProfile.Negativ - 1) / 4) * 100 - 1.5}%` }}
-                    ></div>
-                    <div 
-                      className="absolute -bottom-6 text-sm text-blue-200 font-bold transform -translate-x-1/2"
-                      style={{ left: `${((userProfile.Negativ - 1) / 4) * 100}%` }}
-                    >
-                      Du: {userProfile.Negativ.toFixed(1)}
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between text-xs text-blue-300 mt-8">
-                    <span>Wenig Bedenken</span>
-                    <span>Mittlere Bedenken</span>
-                    <span>Große Bedenken</span>
-                  </div>
+                  <DistributionScatter scores={insights.experienceSkepticismScores} userScore={userNegScore} />
                 </div>
               </div>
             </div>
@@ -676,127 +734,61 @@ function AuswertungContent() {
 
             {/* Optimismus-Vergleiche */}
             <div className="mt-10">
-              <h4 className="text-lg font-semibold mb-6 text-center text-blue-700">Wie optimistisch bist du im Vergleich?</h4>
+              <h4 className="text-lg font-semibold mb-2 text-center text-blue-700">Wie optimistisch bist du im Vergleich?</h4>
+              <p className="text-center text-sm text-blue-600 mb-6">Jeder hellblaue Punkt steht für eine Antwort deiner Vergleichsgruppe, dein Wert ist dunkelblau markiert.</p>
               
+              <div className="bg-blue-100 rounded-lg p-6 border border-blue-200 mb-8">
+                <div className="relative">
+                  <div className="flex justify-between text-xs text-blue-600 mb-2"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+                  <div className="relative h-12 bg-blue-300 rounded-full">
+                    <div className="absolute inset-0 bg-gradient-to-r from-red-300 via-yellow-300 to-green-400 rounded-full opacity-70" />
+                    <div className="absolute top-0 w-1 h-12 bg-blue-700 rounded" style={{ left: `${((positiveComparison.populationAverage - 1) / 4) * 100}%` }} />
+                    <div className="absolute -top-7 text-xs text-blue-700 transform -translate-x-1/2" style={{ left: `${((positiveComparison.populationAverage - 1) / 4) * 100}%` }}>⌀ {positiveComparison.populationAverage.toFixed(1)}</div>
+                    <div className="absolute top-0 w-3 h-12 bg-blue-600 rounded border-2 border-blue-600" style={{ left: `${((userProfile.Positiv - 1) / 4) * 100 - 1.5}%` }} />
+                    <div className="absolute -bottom-8 text-sm text-blue-700 font-bold transform -translate-x-1/2" style={{ left: `${((userProfile.Positiv - 1) / 4) * 100}%` }}>Du: {userProfile.Positiv.toFixed(1)}</div>
+                  </div>
+                  <div className="flex justify-between text-xs text-blue-600 mt-10"><span>Wenig Chancen</span><span>Mittlere Chancen</span><span>Große Chancen</span></div>
+                </div>
+              </div>
+
               <div className="grid md:grid-cols-3 gap-6 mb-8">
                 {/* Altersgruppen-Vergleich */}
                 <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">
-                      {Math.round(((insights.ageOptimismRank - 1) / Math.max(insights.ageOptimismTotal - 1, 1)) * 100)}%
-                    </div>
+                    <div className="text-xl font-bold text-blue-600 mb-2">Altersgruppe</div>
                     <div className="text-blue-700 text-sm mb-1">
-                      Optimistischer als deine Altersgruppe
+                      Optimistischer als {ageOptPerc.trustPct}% deiner Altersgruppe
                     </div>
                     <div className="text-blue-500 text-xs">Generation {userDemo.age}</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.ageOptimismRank - 1) / Math.max(insights.ageOptimismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-500 mt-1">
-                    <span>Vorsichtig</span>
-                    <span>Optimistisch</span>
-                  </div>
+                  <DistributionScatter scores={insights.ageOptimismScores} userScore={userPosScore} userColorClass="bg-blue-600 border-2 border-blue-600" othersClass="bg-white border border-blue-400" />
                 </div>
 
                 {/* Berufsgruppen-Vergleich */}
                 <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">
-                      {Math.round(((insights.roleOptimismRank - 1) / Math.max(insights.roleOptimismTotal - 1, 1)) * 100)}%
-                    </div>
+                    <div className="text-xl font-bold text-blue-600 mb-2">Beruf</div>
                     <div className="text-blue-700 text-sm mb-1">
-                      Optimistischer als {userDemo.role}
+                      Optimistischer als {roleOptPerc.trustPct}% der {userDemo.role}
                     </div>
                     <div className="text-blue-500 text-xs">{userDemo.role}</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.roleOptimismRank - 1) / Math.max(insights.roleOptimismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-500 mt-1">
-                    <span>Vorsichtig</span>
-                    <span>Optimistisch</span>
-                  </div>
+                  <DistributionScatter scores={insights.roleOptimismScores} userScore={userPosScore} userColorClass="bg-blue-600 border-2 border-blue-600" othersClass="bg-white border border-blue-400" />
                 </div>
 
                 {/* Erfahrungs-Vergleich */}
                 <div className="bg-white rounded-lg p-6 border border-blue-200 shadow-sm">
                   <div className="text-center mb-4">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">
-                      {Math.round(((insights.experienceOptimismRank - 1) / Math.max(insights.experienceOptimismTotal - 1, 1)) * 100)}%
-                    </div>
+                    <div className="text-xl font-bold text-blue-600 mb-2">Erfahrung</div>
                     <div className="text-blue-700 text-sm mb-1">
-                      Optimistischer als andere mit {userDemo.experience} Jahren
+                      Optimistischer als {expOptPerc.trustPct}% mit {userDemo.experience} Jahren
                     </div>
                     <div className="text-blue-500 text-xs">{userDemo.experience} Jahre Erfahrung</div>
                   </div>
                   
-                  {/* Visueller Balken */}
-                  <div className="relative h-4 bg-blue-100 rounded-full overflow-hidden">
-                    <div 
-                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-300 to-blue-600 rounded-full transition-all duration-1000"
-                      style={{ width: `${Math.round(((insights.experienceOptimismRank - 1) / Math.max(insights.experienceOptimismTotal - 1, 1)) * 100)}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-blue-500 mt-1">
-                    <span>Vorsichtig</span>
-                    <span>Optimistisch</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Visualisierung */}
-              <div className="bg-blue-100 rounded-lg p-6 border border-blue-200">
-                <div className="relative">
-                  <div className="flex justify-between text-xs text-blue-600 mb-2">
-                    <span>1</span>
-                    <span>2</span>
-                    <span>3</span>
-                    <span>4</span>
-                    <span>5</span>
-                  </div>
-                  
-                  <div className="relative h-8 bg-blue-300 rounded-full">
-                    <div className="absolute inset-0 bg-gradient-to-r from-red-300 via-yellow-300 to-green-400 rounded-full opacity-70"></div>
-                    
-                    <div 
-                      className="absolute top-0 w-1 h-8 bg-blue-700 rounded"
-                      style={{ left: `${((positiveComparison.populationAverage - 1) / 4) * 100}%` }}
-                    ></div>
-                    <div 
-                      className="absolute -top-6 text-xs text-blue-700 transform -translate-x-1/2"
-                      style={{ left: `${((positiveComparison.populationAverage - 1) / 4) * 100}%` }}
-                    >
-                      ⌀ {positiveComparison.populationAverage.toFixed(1)}
-                    </div>
-                    
-                    <div 
-                      className="absolute top-0 w-3 h-8 bg-blue-600 rounded border-2 border-white"
-                      style={{ left: `${((userProfile.Positiv - 1) / 4) * 100 - 1.5}%` }}
-                    ></div>
-                    <div 
-                      className="absolute -bottom-6 text-sm text-blue-700 font-bold transform -translate-x-1/2"
-                      style={{ left: `${((userProfile.Positiv - 1) / 4) * 100}%` }}
-                    >
-                      Du: {userProfile.Positiv.toFixed(1)}
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between text-xs text-blue-600 mt-8">
-                    <span>Wenig Chancen</span>
-                    <span>Mittlere Chancen</span>
-                    <span>Große Chancen</span>
-                  </div>
+                  <DistributionScatter scores={insights.experienceOptimismScores} userScore={userPosScore} userColorClass="bg-blue-600 border-2 border-blue-600" othersClass="bg-white border border-blue-400" />
                 </div>
               </div>
             </div>

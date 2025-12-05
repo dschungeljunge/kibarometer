@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/utils/supabaseClient";
+import { AnswerRow, ResponseRow } from "@/types/database";
 import * as ss from "simple-statistics";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ScatterController } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
@@ -8,25 +9,6 @@ import { Scatter } from 'react-chartjs-2';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ScatterController);
 
 // Typ-Definitionen (könnten in eine eigene Datei ausgelagert werden)
-interface Answer {
-    value: number;
-    item_id: number;
-    responses: { consent?: string } | null;
-}
-
-interface ExtendedAnswer extends Answer {
-    response_id: number;
-    responses: {
-        id: string;
-        gender: string;
-        age: string;
-        experience: string;
-        role: string;
-        school_level: string;
-        consent?: string;
-    } | null;
-}
-
 interface Item {
     id: number;
     category: 'Positiv' | 'Negativ' | 'Kontrolle';
@@ -91,17 +73,66 @@ export default function ZusammenhaengePage() {
             
             // 1. Daten laden
             const { data: itemsData, error: itemsError } = await supabase.from("items").select('id, category');
-            const { data: answersData, error: answersError } = await supabase.from("answers").select(`
-                response_id,
-                item_id,
-                value
-            `).range(0, 2000); // Explizit höheres Limit
+            
+            // Lade ALLE Answers mit Pagination
+            const allAnswersPages = [];
+            let page = 0;
+            let hasMore = true;
+            
+            while (hasMore) {
+                const { data: pageData, error } = await supabase
+                    .from("answers")
+                    .select(`
+                        response_id,
+                        item_id,
+                        value
+                    `)
+                    .range(page * 1000, (page + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Answers:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allAnswersPages.push(...pageData);
+                    page++;
+                    hasMore = pageData.length === 1000;
+                } else {
+                    hasMore = false;
+                }
+            }
+            
+            const answersData = allAnswersPages;
+            const answersError = allAnswersPages.length === 0 && page === 0 ? new Error("Keine Answers") : null;
 
-            // Lade alle demografischen Informationen separat aus der responses-Tabelle
-            const { data: responsesData, error: responsesError } = await supabase
-                .from("responses")
-                .select("id, age, experience, consent")
-                .range(0, 200);
+            // Lade alle demografischen Informationen separat aus der responses-Tabelle (mit Pagination)
+            const allResponsesPages = [];
+            let responsePage = 0;
+            let hasMoreResponses = true;
+            
+            while (hasMoreResponses) {
+                const { data: pageData, error } = await supabase
+                    .from("responses")
+                    .select("id, age, experience, consent")
+                    .range(responsePage * 1000, (responsePage + 1) * 1000 - 1);
+                    
+                if (error) {
+                    console.error("Fehler beim Laden der Responses:", error);
+                    break;
+                }
+                
+                if (pageData && pageData.length > 0) {
+                    allResponsesPages.push(...pageData);
+                    responsePage++;
+                    hasMoreResponses = pageData.length === 1000;
+                } else {
+                    hasMoreResponses = false;
+                }
+            }
+            
+            const responsesData = allResponsesPages;
+            const responsesError = allResponsesPages.length === 0 && responsePage === 0 ? new Error("Keine Responses") : null;
 
             if (itemsError || answersError || !answersData) {
                 console.error("Daten-Ladefehler:", itemsError || answersError);
@@ -120,7 +151,7 @@ export default function ZusammenhaengePage() {
                 experience?: string;
                 consent?: string;
             }> = {};
-            (responsesData ?? []).forEach((r: any) => {
+            (responsesData ?? []).forEach((r: ResponseRow) => {
                 if (r && r.id) {
                     responseMap[r.id.toString()] = r;
                 }
@@ -130,7 +161,9 @@ export default function ZusammenhaengePage() {
             // Keine Consent-Filterung mehr: alle Antworten werden ausgewertet
 
             // 2. Scores pro Teilnehmer berechnen
-            const responsesByParticipant = (answersData as any[]).reduce((acc: Record<string, { answers: { item_id: number, value: number }[], age: string, experience: string }>, answer: any) => {
+            type AnswerSimple = { item_id: number; value: number };
+
+            const responsesByParticipant = (answersData as AnswerRow[]).reduce((acc: Record<string, { answers: AnswerSimple[]; age: string; experience: string }>, answer) => {
                 const id = String(answer.response_id);
                 if (!acc[id]) {
                     const demo = responseMap[id] || {};
@@ -142,16 +175,16 @@ export default function ZusammenhaengePage() {
                 }
                 acc[id].answers.push({ item_id: answer.item_id, value: answer.value });
                 return acc;
-            }, {} as Record<string, { answers: { item_id: number, value: number }[], age: string, experience: string }>);
+            }, {} as Record<string, { answers: AnswerSimple[]; age: string; experience: string }>);
 
-            const participantScores: ParticipantScores[] = Object.values(responsesByParticipant).map((p: { answers: { item_id: number, value: number }[], age: string, experience: string }) => {
+            const participantScores: ParticipantScores[] = Object.values(responsesByParticipant).map((p) => {
                 const positiveScores = p.answers
-                    .map((a: any) => items.find(i => i.id === a.item_id)?.category === 'Positiv' ? a.value : null)
-                    .filter((v: any): v is number => v !== null);
+                    .map((a) => items.find(i => i.id === a.item_id)?.category === 'Positiv' ? a.value : null)
+                    .filter((v): v is number => v !== null);
                 
                 const negativeScoresRaw = p.answers
-                    .map((a: any) => items.find(i => i.id === a.item_id)?.category === 'Negativ' ? a.value : null)
-                    .filter((v: any): v is number => v !== null);
+                    .map((a) => items.find(i => i.id === a.item_id)?.category === 'Negativ' ? a.value : null)
+                    .filter((v): v is number => v !== null);
 
                 return {
                     meanPositive: positiveScores.length > 0 ? ss.mean(positiveScores) : null,
