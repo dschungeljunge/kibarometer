@@ -1,9 +1,38 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Volume2, Mic, Square, ChevronRight, RotateCcw, Loader2, ShieldCheck, Flag } from "lucide-react";
+import { Volume2, Mic, Square, ChevronRight, RotateCcw, Loader2, ShieldCheck, Flag, Lock } from "lucide-react";
 import { supabase } from "@/utils/supabaseClient";
 import type { ChallengeWithStats } from "@/types/database";
+
+const ROLES = [
+  { value: 'Lehrperson', label: 'Lehrperson' },
+  { value: 'Dozent:in', label: 'Dozent:in' },
+  { value: 'Schulleiter:in', label: 'Schulleiter:in' },
+  { value: 'Wissenschaftler:in', label: 'Wissenschaftler:in' },
+  { value: 'sonstiges', label: 'Sonstiges' },
+];
+
+const LEVELS = [
+  { value: 'Basisstufe', label: 'Basisstufe' },
+  { value: 'Primarschule', label: 'Primarschule' },
+  { value: 'Sekundarstufe 1', label: 'Sekundarstufe 1' },
+  { value: 'Sekundarstufe 2', label: 'Sekundarstufe 2' },
+  { value: 'Hochschule', label: 'Hochschule' },
+  { value: 'Universität', label: 'Universität' },
+];
+
+const BUTTON_COLORS = [
+  "from-blue-600 to-blue-700",
+  "from-indigo-600 to-indigo-700",
+  "from-violet-600 to-violet-700",
+  "from-purple-600 to-purple-700",
+  "from-fuchsia-600 to-fuchsia-700",
+  "from-pink-600 to-pink-700",
+  "from-cyan-600 to-cyan-700",
+  "from-teal-600 to-teal-700",
+  "from-emerald-600 to-emerald-700",
+];
 
 // Anonyme Geräte-ID (bleibt im localStorage)
 function getDeviceId(): string {
@@ -26,6 +55,12 @@ export default function HerausforderungenPage() {
   const [deckCompleted, setDeckCompleted] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  
+  // User Selection State
+  const [userRole, setUserRole] = useState<string>("");
+  const [userLevel, setUserLevel] = useState<string>("");
+  const [selectionComplete, setSelectionComplete] = useState(false);
+  const [playButtonColor, setPlayButtonColor] = useState(BUTTON_COLORS[0]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -33,21 +68,36 @@ export default function HerausforderungenPage() {
 
   // Challenges laden
   const loadChallenges = useCallback(async () => {
+    if (!selectionComplete) return;
+
     setLoading(true);
     const { data, error } = await supabase
       .from("challenges_with_stats")
       .select("*")
       .order("rating_count", { ascending: true })
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(50);
 
     if (error) {
       console.error("Fehler beim Laden:", error);
-      // Bei Fehler trotzdem weitermachen (leere Liste)
     }
 
     if (data && data.length > 0) {
-      setChallenges(data as ChallengeWithStats[]);
+      let loaded = data as ChallengeWithStats[];
+      
+      // Sortieren: Matches zuerst
+      if (userLevel) {
+        loaded.sort((a, b) => {
+          const aMatch = a.creator_level === userLevel;
+          const bMatch = b.creator_level === userLevel;
+          if (aMatch && !bMatch) return -1;
+          if (!aMatch && bMatch) return 1;
+          return 0;
+        });
+      }
+
+      setChallenges(loaded);
+      
       // Initiale Ratings setzen
       const initialRatings: Record<string, { impact: number; difficulty: number }> = {};
       data.forEach((c) => {
@@ -56,12 +106,16 @@ export default function HerausforderungenPage() {
       setRatings(initialRatings);
     }
     setLoading(false);
-  }, []);
+  }, [selectionComplete, userLevel]);
 
   useEffect(() => {
     deviceId.current = getDeviceId();
-    loadChallenges();
-  }, [loadChallenges]);
+    if (selectionComplete) {
+      loadChallenges();
+    } else {
+      setLoading(false);
+    }
+  }, [loadChallenges, selectionComplete]);
 
   useEffect(() => {
     return () => {
@@ -177,6 +231,10 @@ export default function HerausforderungenPage() {
     await saveRating();
     setSubmitting(false);
 
+    // Neue Farbe für den Button zufällig wählen (aber anders als die aktuelle)
+    const otherColors = BUTTON_COLORS.filter(c => c !== playButtonColor);
+    setPlayButtonColor(otherColors[Math.floor(Math.random() * otherColors.length)]);
+
     audioRef.current?.pause();
     setIsPlaying(false);
     setProgress(0);
@@ -290,6 +348,8 @@ export default function HerausforderungenPage() {
       duration_sec: elapsed,
       status: "approved", // TODO: auf "pending" ändern für Moderation
       device_id: deviceId.current,
+      creator_role: userRole,
+      creator_level: userLevel,
     });
 
     if (insertError) {
@@ -309,6 +369,68 @@ export default function HerausforderungenPage() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+      </div>
+    );
+  }
+
+  // Auswahl-Screen (bevor es losgeht)
+  if (!selectionComplete) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white/90 backdrop-blur border border-blue-100 rounded-3xl shadow-xl p-8 space-y-8">
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-bold text-blue-900">Willkommen</h1>
+            <p className="text-neutral-500">Bitte wähle deine Funktion und Stufe, um passende Herausforderungen zu finden.</p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-neutral-700 ml-1">Deine Funktion</label>
+              <div className="grid grid-cols-1 gap-2">
+                {ROLES.map((role) => (
+                  <button
+                    key={role.value}
+                    onClick={() => setUserRole(role.value)}
+                    className={`p-3 rounded-xl text-left transition-all ${
+                      userRole === role.value
+                        ? "bg-blue-600 text-white shadow-md"
+                        : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100"
+                    }`}
+                  >
+                    {role.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-neutral-700 ml-1">Deine Stufe</label>
+              <div className="grid grid-cols-2 gap-2">
+                {LEVELS.map((level) => (
+                  <button
+                    key={level.value}
+                    onClick={() => setUserLevel(level.value)}
+                    className={`p-3 rounded-xl text-left text-sm transition-all ${
+                      userLevel === level.value
+                        ? "bg-blue-600 text-white shadow-md"
+                        : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100"
+                    }`}
+                  >
+                    {level.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setSelectionComplete(true)}
+            disabled={!userRole || !userLevel}
+            className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-2xl font-bold text-lg hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            Loslegen
+          </button>
+        </div>
       </div>
     );
   }
@@ -541,10 +663,17 @@ export default function HerausforderungenPage() {
 
         {/* Central Play Button */}
         <div className="relative">
+          {currentChallenge.creator_level && currentChallenge.creator_level !== userLevel && (
+             <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full whitespace-nowrap border border-yellow-200 flex items-center gap-1">
+               <Lock className="w-3 h-3" />
+               Andere Stufe: {currentChallenge.creator_level}
+             </div>
+          )}
+
           <button
             type="button"
             onClick={togglePlay}
-            className={`relative w-36 h-36 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center transition-all duration-300 hover:scale-[1.02] shadow-lg hover:shadow-2xl ${
+            className={`relative w-36 h-36 rounded-full bg-gradient-to-br ${playButtonColor} flex items-center justify-center transition-all duration-300 hover:scale-[1.02] shadow-lg hover:shadow-2xl ${
               isPlaying ? "shadow-[0_0_0_10px_rgba(37,99,235,0.12)]" : ""
             }`}
           >

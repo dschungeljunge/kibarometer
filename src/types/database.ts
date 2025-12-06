@@ -34,6 +34,8 @@ export interface ChallengeRow {
   status: ChallengeStatus;
   created_at: string;
   device_id?: string;
+  creator_role?: string;
+  creator_level?: string;
 }
 
 export interface ChallengeRatingRow {
