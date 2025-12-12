@@ -50,11 +50,13 @@ export default function HerausforderungenPage() {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<Record<string, { impact: number; difficulty: number }>>({});
+  const [expandedRatings, setExpandedRatings] = useState<Record<string, boolean>>({});
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [deckCompleted, setDeckCompleted] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [activeAudioChallengeId, setActiveAudioChallengeId] = useState<string | null>(null);
   
   // User Selection State
   const [userRole, setUserRole] = useState<string>("");
@@ -66,8 +68,18 @@ export default function HerausforderungenPage() {
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const deviceId = useRef<string>("");
 
-  // Challenges laden
-  const loadChallenges = useCallback(async () => {
+  const mergeInitialRatings = useCallback((items: ChallengeWithStats[]) => {
+    setRatings((prev) => {
+      const next = { ...prev };
+      for (const c of items) {
+        if (!next[c.id]) next[c.id] = { impact: 50, difficulty: 50 };
+      }
+      return next;
+    });
+  }, []);
+
+  // Deck: kompakter „zufällig/unterbewertet“-Stapel wie bisher (max 50)
+  const loadDeck = useCallback(async () => {
     if (!selectionComplete) return;
 
     setLoading(true);
@@ -78,44 +90,34 @@ export default function HerausforderungenPage() {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) {
-      console.error("Fehler beim Laden:", error);
-    }
+    if (error) console.error("Fehler beim Laden (Deck):", error);
 
-    if (data && data.length > 0) {
-      let loaded = data as ChallengeWithStats[];
-      
-      // Sortieren: Matches zuerst
-      if (userLevel) {
-        loaded.sort((a, b) => {
-          const aMatch = a.creator_level === userLevel;
-          const bMatch = b.creator_level === userLevel;
-          if (aMatch && !bMatch) return -1;
-          if (!aMatch && bMatch) return 1;
-          return 0;
-        });
-      }
+    const loaded = (data ?? []) as ChallengeWithStats[];
 
-      setChallenges(loaded);
-      
-      // Initiale Ratings setzen
-      const initialRatings: Record<string, { impact: number; difficulty: number }> = {};
-      data.forEach((c) => {
-        initialRatings[c.id] = { impact: 50, difficulty: 50 };
+    // Sortieren: Matches zuerst (nur Deck)
+    if (userLevel) {
+      loaded.sort((a, b) => {
+        const aMatch = a.creator_level === userLevel;
+        const bMatch = b.creator_level === userLevel;
+        if (aMatch && !bMatch) return -1;
+        if (!aMatch && bMatch) return 1;
+        return 0;
       });
-      setRatings(initialRatings);
     }
+
+    setChallenges(loaded);
+    mergeInitialRatings(loaded);
     setLoading(false);
-  }, [selectionComplete, userLevel]);
+  }, [mergeInitialRatings, selectionComplete, userLevel]);
 
   useEffect(() => {
     deviceId.current = getDeviceId();
     if (selectionComplete) {
-      loadChallenges();
+      loadDeck();
     } else {
       setLoading(false);
     }
-  }, [loadChallenges, selectionComplete]);
+  }, [loadDeck, selectionComplete]);
 
   useEffect(() => {
     return () => {
@@ -131,18 +133,26 @@ export default function HerausforderungenPage() {
     return data.publicUrl;
   };
 
-  const togglePlay = () => {
-    if (!currentChallenge) return;
+  const stopAudio = () => {
+    audioRef.current?.pause();
+    setIsPlaying(false);
+    if (progressInterval.current) clearInterval(progressInterval.current);
+  };
 
-    if (isPlaying && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      if (progressInterval.current) clearInterval(progressInterval.current);
+  const playChallengeAudio = (challenge: ChallengeWithStats) => {
+    if (!challenge) return;
+
+    // Toggle: wenn dieselbe Challenge läuft -> stoppen
+    if (isPlaying && activeAudioChallengeId === challenge.id) {
+      stopAudio();
       return;
     }
 
-    audioRef.current?.pause();
-    const audio = new Audio(getAudioUrl(currentChallenge.audio_path));
+    stopAudio();
+    setActiveAudioChallengeId(challenge.id);
+    setProgress(0);
+
+    const audio = new Audio(getAudioUrl(challenge.audio_path));
     audioRef.current = audio;
 
     audio.onended = () => {
@@ -153,15 +163,16 @@ export default function HerausforderungenPage() {
 
     audio.onplay = () => {
       progressInterval.current = setInterval(() => {
-        if (audio.duration) {
-          setProgress((audio.currentTime / audio.duration) * 100);
-        }
+        if (audio.duration) setProgress((audio.currentTime / audio.duration) * 100);
       }, 100);
     };
 
-    audio.play().catch(() => setIsPlaying(false));
-    setIsPlaying(true);
-    setProgress(0);
+    audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+  };
+
+  const togglePlay = () => {
+    if (!currentChallenge) return;
+    playChallengeAudio(currentChallenge);
   };
 
   const updateRating = (field: "impact" | "difficulty", value: number) => {
@@ -175,16 +186,13 @@ export default function HerausforderungenPage() {
     }));
   };
 
-  const saveRating = async () => {
-    if (!currentChallenge) return;
-
-    const rating = ratings[currentChallenge.id];
+  const saveRatingFor = async (challengeId: string) => {
+    const rating = ratings[challengeId];
     if (!rating) return;
 
-    // Upsert: falls schon bewertet, aktualisieren
     await supabase.from("challenge_ratings").upsert(
       {
-        challenge_id: currentChallenge.id,
+        challenge_id: challengeId,
         device_id: deviceId.current,
         impact: rating.impact,
         difficulty: rating.difficulty,
@@ -228,7 +236,7 @@ export default function HerausforderungenPage() {
 
   const nextChallenge = async () => {
     setSubmitting(true);
-    await saveRating();
+    if (currentChallenge) await saveRatingFor(currentChallenge.id);
     setSubmitting(false);
 
     // Neue Farbe für den Button zufällig wählen (aber anders als die aktuelle)
@@ -581,200 +589,393 @@ export default function HerausforderungenPage() {
     );
   }
 
+  const formatDate = (iso?: string) => {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleDateString("de-CH", { year: "numeric", month: "2-digit", day: "2-digit" });
+    } catch {
+      return "";
+    }
+  };
+
+  const roleBadgeClass = (role?: string | null) => {
+    if (role === "Lehrperson") return "bg-blue-600 text-white border-blue-700";
+    if (role === "Dozent:in") return "bg-indigo-600 text-white border-indigo-700";
+    if (role === "Schulleiter:in") return "bg-slate-700 text-white border-slate-800";
+    if (role === "Wissenschaftler:in") return "bg-violet-600 text-white border-violet-700";
+    if (role) return "bg-neutral-200 text-neutral-800 border-neutral-300";
+    return "bg-neutral-100 text-neutral-600 border-neutral-200";
+  };
+
+  const levelTheme = (level?: string | null) => {
+    if (level === "Basisstufe") return { badge: "bg-sky-100 text-sky-900 border-sky-200", border: "border-sky-200" };
+    if (level === "Primarschule") return { badge: "bg-sky-200 text-sky-900 border-sky-300", border: "border-sky-300" };
+    if (level === "Sekundarstufe 1") return { badge: "bg-blue-600 text-white border-blue-700", border: "border-blue-200" };
+    if (level === "Sekundarstufe 2") return { badge: "bg-blue-800 text-white border-blue-900", border: "border-blue-200" };
+    if (level === "Hochschule") return { badge: "bg-indigo-700 text-white border-indigo-800", border: "border-indigo-200" };
+    if (level === "Universität") return { badge: "bg-violet-700 text-white border-violet-800", border: "border-violet-200" };
+    return { badge: "bg-neutral-100 text-neutral-700 border-neutral-200", border: "border-blue-100" };
+  };
+
   // Keine Challenges vorhanden
-  if (challenges.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
-        <div className="flex flex-col items-center gap-6 text-center max-w-sm bg-white/80 backdrop-blur border border-blue-100 rounded-3xl shadow-xl p-8">
-          <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center">
-            <Mic className="w-8 h-8 text-blue-500" />
-          </div>
-          <p className="text-neutral-700">Noch keine Beiträge vorhanden</p>
-          <button
-            type="button"
-            onClick={() => setShowRecorder(true)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 transition"
-          >
-            Ersten Beitrag aufnehmen
-          </button>
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 p-6">
+      <div className="w-full max-w-5xl mx-auto space-y-10">
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold text-blue-900">Herausforderungen</h1>
+          <p className="text-neutral-500 text-sm">Höre Fälle an, bewerte sie – und teile deine eigene Herausforderung.</p>
         </div>
-      </div>
-    );
-  }
 
-  // Deck abgeschlossen
-  if (deckCompleted) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
-        <div className="flex flex-col items-center gap-8 text-center max-w-sm bg-white/80 backdrop-blur border border-blue-100 rounded-3xl shadow-xl p-8">
-          <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
-            <Mic className="w-8 h-8 text-white" />
-          </div>
+        {/* 1) Deck */}
+        <section className="bg-white/90 backdrop-blur border border-blue-100 rounded-3xl shadow-2xl p-8">
+          {challenges.length === 0 ? (
+            <div className="flex flex-col items-center gap-6 text-center">
+              <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center">
+                <Mic className="w-8 h-8 text-blue-500" />
+              </div>
+              <p className="text-neutral-700">Noch keine Beiträge vorhanden</p>
+              <button
+                type="button"
+                onClick={() => setShowRecorder(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 transition"
+              >
+                Ersten Beitrag aufnehmen
+              </button>
+            </div>
+          ) : deckCompleted || !currentChallenge ? (
+            <div className="flex flex-col items-center gap-6 text-center">
+              <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
+                <Mic className="w-8 h-8 text-white" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-neutral-900 font-medium">Alle {challenges.length} gehört</p>
+                <p className="text-neutral-500 text-sm">Du kannst nochmals starten oder unten einzelne Fälle auswählen.</p>
+              </div>
+              <div className="flex flex-col gap-3 w-full max-w-sm">
+                <button
+                  type="button"
+                  onClick={() => setShowRecorder(true)}
+                  className="w-full py-3 bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 transition"
+                >
+                  Eigene aufnehmen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopAudio();
+                    setCurrentIndex(0);
+                    setDeckCompleted(false);
+                    setProgress(0);
+                  }}
+                  className="w-full py-3 text-neutral-600 hover:text-neutral-900 transition text-sm"
+                >
+                  Deck nochmals starten
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-10">
+              {/* Progress Dots */}
+              <div className="flex gap-2">
+                {challenges.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      i < currentIndex ? "bg-blue-600" : i === currentIndex ? "bg-blue-300" : "bg-blue-100"
+                    }`}
+                  />
+                ))}
+              </div>
 
-          <div className="space-y-2">
-            <p className="text-neutral-900 font-medium">Alle {challenges.length} gehört</p>
-            <p className="text-neutral-500 text-sm">Eigene Herausforderung teilen?</p>
-          </div>
+              {/* Central Play Button */}
+              <div className="relative">
+                {currentChallenge.creator_level && currentChallenge.creator_level !== userLevel ? (
+                  <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full whitespace-nowrap border border-yellow-200 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Andere Stufe: {currentChallenge.creator_level}
+                  </div>
+                ) : null}
 
-          <div className="flex flex-col gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={togglePlay}
+                  className={`relative w-36 h-36 rounded-full bg-gradient-to-br ${playButtonColor} flex items-center justify-center transition-all duration-300 hover:scale-[1.02] shadow-lg hover:shadow-2xl ${
+                    isPlaying ? "shadow-[0_0_0_10px_rgba(37,99,235,0.12)]" : ""
+                  }`}
+                >
+                  <Volume2 className={`w-12 h-12 text-white transition-transform ${isPlaying ? "animate-pulse" : ""}`} />
+                  {/* Progress Ring */}
+                  <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 128 128">
+                    <circle cx="64" cy="64" r="60" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="4" />
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="60"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 60}`}
+                      strokeDashoffset={`${2 * Math.PI * 60 * (1 - progress / 100)}`}
+                      className="transition-all duration-100"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Sliders */}
+              <div className="w-full max-w-xl space-y-10">
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-neutral-700 font-medium">Wie häufig passiert das dir?</p>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={ratings[currentChallenge?.id]?.impact ?? 50}
+                    onChange={(e) => updateRating("impact", Number(e.target.value))}
+                    className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
+                  />
+                  <div className="flex justify-between text-xs text-neutral-500 font-medium px-1">
+                    <span>Selten / Nie</span>
+                    <span>Täglich / Oft</span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-neutral-700 font-medium">Wie sicher fühlst du dich bei der Lösung?</p>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={ratings[currentChallenge?.id]?.difficulty ?? 50}
+                    onChange={(e) => updateRating("difficulty", Number(e.target.value))}
+                    className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
+                  />
+                  <div className="flex justify-between text-xs text-neutral-500 font-medium px-1">
+                    <span>Ratlos</span>
+                    <span>Souverän</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Next Button */}
+              <button
+                type="button"
+                onClick={nextChallenge}
+                disabled={submitting}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full font-medium hover:from-blue-700 hover:to-blue-800 transition disabled:opacity-50 shadow-lg"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Nächste
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              {/* Report Button */}
+              <button
+                onClick={reportSpam}
+                className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400 hover:text-red-500 transition-colors"
+                title="Diesen Beitrag als unangemessen melden"
+              >
+                <Flag className="w-3 h-3" />
+                Beitrag melden
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* 2) CTA */}
+        <section className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-3xl shadow-2xl p-8">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold">Eigene Herausforderung teilen</h2>
+              <p className="text-blue-100 text-sm">
+                Nenne keine Namen oder Schulen. Deine Aufnahme dauert max. 60 Sekunden.
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setShowRecorder(true)}
-              className="w-full py-3 bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 transition"
+              className="px-6 py-3 bg-white text-blue-700 rounded-full font-semibold hover:bg-blue-50 transition"
             >
-              Eigene aufnehmen
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentIndex(0);
-                setDeckCompleted(false);
-                setProgress(0);
-              }}
-              className="w-full py-3 text-neutral-600 hover:text-neutral-900 transition text-sm"
-            >
-              Nochmals anhören
+              Jetzt aufnehmen
             </button>
           </div>
-        </div>
-      </div>
-    );
-  }
+        </section>
 
-  // Hauptansicht: Anhören + Bewerten
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
-      <div className="flex flex-col items-center gap-10 w-full max-w-xl bg-white/90 backdrop-blur border border-blue-100 rounded-3xl shadow-2xl p-8">
-        {/* Progress Dots */}
-        <div className="flex gap-2">
-          {challenges.map((_, i) => (
-            <div
-              key={i}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i < currentIndex
-                  ? "bg-blue-600"
-                  : i === currentIndex
-                  ? "bg-blue-300"
-                  : "bg-blue-100"
-              }`}
-            />
-          ))}
-        </div>
-
-        {/* Central Play Button */}
-        <div className="relative">
-          {currentChallenge.creator_level && currentChallenge.creator_level !== userLevel && (
-             <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-yellow-100 text-yellow-800 text-xs px-3 py-1 rounded-full whitespace-nowrap border border-yellow-200 flex items-center gap-1">
-               <Lock className="w-3 h-3" />
-               Andere Stufe: {currentChallenge.creator_level}
-             </div>
-          )}
-
-          <button
-            type="button"
-            onClick={togglePlay}
-            className={`relative w-36 h-36 rounded-full bg-gradient-to-br ${playButtonColor} flex items-center justify-center transition-all duration-300 hover:scale-[1.02] shadow-lg hover:shadow-2xl ${
-              isPlaying ? "shadow-[0_0_0_10px_rgba(37,99,235,0.12)]" : ""
-            }`}
-          >
-            <Volume2
-              className={`w-12 h-12 text-white transition-transform ${
-                isPlaying ? "animate-pulse" : ""
-              }`}
-            />
-            {/* Progress Ring */}
-            <svg
-              className="absolute inset-0 w-full h-full -rotate-90"
-              viewBox="0 0 128 128"
-            >
-              <circle
-                cx="64"
-                cy="64"
-                r="60"
-                fill="none"
-                stroke="rgba(255,255,255,0.2)"
-                strokeWidth="4"
-              />
-              <circle
-                cx="64"
-                cy="64"
-                r="60"
-                fill="none"
-                stroke="white"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray={`${2 * Math.PI * 60}`}
-                strokeDashoffset={`${2 * Math.PI * 60 * (1 - progress / 100)}`}
-                className="transition-all duration-100"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* Sliders */}
-        <div className="w-full space-y-10">
-          <div className="space-y-4">
-            <div className="text-center">
-              <p className="text-neutral-700 font-medium">
-                Wie häufig passiert das dir?
-              </p>
+        {/* 3) Übersicht */}
+        <section className="bg-white/90 backdrop-blur border border-blue-100 rounded-3xl shadow-2xl p-8 space-y-6">
+          <div className="flex items-end justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-blue-900">Übersicht</h2>
+              <p className="text-neutral-500 text-sm">Gruppiert nach Stufe – farbcodiert nach Rolle und Stufe.</p>
             </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={ratings[currentChallenge?.id]?.impact ?? 50}
-              onChange={(e) => updateRating("impact", Number(e.target.value))}
-              className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
-            />
-            <div className="flex justify-between text-xs text-neutral-500 font-medium px-1">
-              <span>Selten / Nie</span>
-              <span>Täglich / Oft</span>
-            </div>
+            <p className="text-xs text-neutral-400">{challenges.length} Beiträge</p>
           </div>
 
-          <div className="space-y-4">
-            <div className="text-center">
-              <p className="text-neutral-700 font-medium">
-                Wie sicher fühlst du dich bei der Lösung?
-              </p>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={ratings[currentChallenge?.id]?.difficulty ?? 50}
-              onChange={(e) => updateRating("difficulty", Number(e.target.value))}
-              className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
-            />
-            <div className="flex justify-between text-xs text-neutral-500 font-medium px-1">
-              <span>Ratlos</span>
-              <span>Souverän</span>
-            </div>
-          </div>
-        </div>
+          {(() => {
+            const order = LEVELS.map((l) => l.value);
+            const UNKNOWN = "Unbekannt";
+            const groups = new Map<string, ChallengeWithStats[]>();
+            for (const c of challenges) {
+              const key = c.creator_level ?? UNKNOWN;
+              const arr = groups.get(key) ?? [];
+              arr.push(c);
+              groups.set(key, arr);
+            }
+            // Sort innerhalb jeder Stufe: neueste zuerst
+            for (const [, arr] of groups) {
+              arr.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+            }
 
-        {/* Next Button */}
-        <button
-          type="button"
-          onClick={nextChallenge}
-          disabled={submitting}
-          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full font-medium hover:from-blue-700 hover:to-blue-800 transition disabled:opacity-50 shadow-lg"
-        >
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-          Nächste
-          <ChevronRight className="w-4 h-4" />
-        </button>
+            const keysInOrder = [...order.filter((k) => groups.has(k)), ...[...groups.keys()].filter((k) => !order.includes(k))];
 
-        {/* Report Button - Dezent unter dem Hauptbutton */}
-        <button
-          onClick={reportSpam}
-          className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400 hover:text-red-500 transition-colors"
-          title="Diesen Beitrag als unangemessen melden"
-        >
-          <Flag className="w-3 h-3" />
-          Beitrag melden
-        </button>
+            return (
+              <div className="space-y-6">
+                {keysInOrder.map((levelKey) => {
+                  const list = groups.get(levelKey) ?? [];
+                  const theme = levelTheme(levelKey === UNKNOWN ? null : levelKey);
+                  return (
+                    <div key={levelKey} className={`rounded-2xl border ${theme.border} bg-white`}>
+                      <div className="flex items-center justify-between px-5 py-4 border-b border-blue-50">
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs px-2 py-1 rounded-full border ${theme.badge}`}>
+                            {levelKey === UNKNOWN ? "Unbekannte Stufe" : levelKey}
+                          </span>
+                          <p className="text-sm text-neutral-500">{list.length} Beiträge</p>
+                        </div>
+                      </div>
+
+                      <div className="divide-y divide-blue-50">
+                        {list.map((c) => {
+                          const playingThis = isPlaying && activeAudioChallengeId === c.id;
+                          const myRating = ratings[c.id] ?? { impact: 50, difficulty: 50 };
+                          const isExpanded = !!expandedRatings[c.id];
+                          // Index im Deck (für "Im Deck")
+                          const deckIdx = challenges.findIndex((x) => x.id === c.id);
+
+                          return (
+                            <div key={c.id} className="px-5 py-4">
+                              {/* Kompakte Zeile */}
+                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`text-xs px-2 py-1 rounded-full border ${roleBadgeClass(c.creator_role)}`}>
+                                    {c.creator_role ?? "Unbekannte Rolle"}
+                                  </span>
+                                  <span className="text-xs text-neutral-400">{formatDate(c.created_at)}</span>
+                                  <span className="text-xs text-neutral-500">
+                                    Bewertungen: <span className="font-semibold text-neutral-900">{c.rating_count ?? 0}</span>
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => playChallengeAudio(c)}
+                                    className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+                                      playingThis ? "bg-blue-100 text-blue-900" : "bg-blue-600 text-white hover:bg-blue-700"
+                                    }`}
+                                  >
+                                    {playingThis ? "Stop" : "Anhören"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedRatings((prev) => ({
+                                        ...prev,
+                                        [c.id]: !prev[c.id],
+                                      }))
+                                    }
+                                    className="px-4 py-2 rounded-full text-sm font-medium bg-white border border-blue-200 text-blue-800 hover:border-blue-300 transition"
+                                  >
+                                    {isExpanded ? "Schliessen" : "Bewerten"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      stopAudio();
+                                      setDeckCompleted(false);
+                                      if (deckIdx >= 0) setCurrentIndex(deckIdx);
+                                      window.scrollTo({ top: 0, behavior: "smooth" });
+                                    }}
+                                    className="px-4 py-2 rounded-full text-sm font-medium bg-white border border-neutral-200 text-neutral-700 hover:border-neutral-300 transition"
+                                    title="Diesen Fall im Deck öffnen"
+                                  >
+                                    Im Deck
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress nur wenn aktiv */}
+                              {playingThis ? (
+                                <div className="mt-3 h-2 bg-blue-100 rounded-full overflow-hidden">
+                                  <div className="h-2 bg-blue-600 transition-all duration-100" style={{ width: `${progress}%` }} />
+                                </div>
+                              ) : null}
+
+                              {/* Accordion: Bewertung */}
+                              {isExpanded ? (
+                                <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/40 p-4 space-y-4">
+                                  <div className="space-y-2">
+                                    <p className="text-sm font-medium text-neutral-700">Wie häufig passiert das dir?</p>
+                                    <input
+                                      type="range"
+                                      min={0}
+                                      max={100}
+                                      value={myRating.impact}
+                                      onChange={(e) =>
+                                        setRatings((prev) => ({
+                                          ...prev,
+                                          [c.id]: { ...myRating, impact: Number(e.target.value) },
+                                        }))
+                                      }
+                                      className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <p className="text-sm font-medium text-neutral-700">Wie sicher fühlst du dich bei der Lösung?</p>
+                                    <input
+                                      type="range"
+                                      min={0}
+                                      max={100}
+                                      value={myRating.difficulty}
+                                      onChange={(e) =>
+                                        setRatings((prev) => ({
+                                          ...prev,
+                                          [c.id]: { ...myRating, difficulty: Number(e.target.value) },
+                                        }))
+                                      }
+                                      className="w-full h-2 bg-blue-100 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md focus:outline-none transition-all"
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-3 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => saveRatingFor(c.id)}
+                                      className="px-4 py-2 rounded-full text-sm font-medium bg-white border border-blue-200 text-blue-800 hover:border-blue-300 transition"
+                                    >
+                                      Bewertung speichern
+                                    </button>
+                                    <p className="text-xs text-neutral-400">Wird anonym pro Gerät gespeichert.</p>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
       </div>
     </div>
   );
